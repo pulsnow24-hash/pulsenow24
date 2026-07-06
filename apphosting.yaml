@@ -1,0 +1,25 @@
+# Configurația Firebase App Hosting.
+# Variabilele NEXT_PUBLIC_* sunt incluse în bundle-ul de browser la build —
+# sunt publice prin design (orice site Firebase le expune), securitatea
+# vine din regulile Firestore, nu din secretul acestor valori.
+env:
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyBRpDvbgvu3XGRurXlB83gHFBae6ihUG34
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: pulsenow24.firebaseapp.com
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: pulsenow24
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:222123836927:web:6ac269e499b1c0ba7993ca
+    availability:
+      - BUILD
+      - RUNTIME

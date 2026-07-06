@@ -8,7 +8,12 @@
  * Dacă niciuna nu există, getDb() întoarce null și site-ul folosește
  * articolele demonstrative din demo-articles.ts.
  */
-import { getApps, initializeApp, type FirebaseOptions } from "firebase/app";
+import {
+  getApps,
+  initializeApp,
+  type FirebaseApp,
+  type FirebaseOptions,
+} from "firebase/app";
 import { getFirestore, type Firestore } from "firebase/firestore/lite";
 
 function getConfig(): FirebaseOptions | null {
@@ -26,9 +31,13 @@ function getConfig(): FirebaseOptions | null {
   return null;
 }
 
-export function getDb(): Firestore | null {
+export function getFirebaseApp(): FirebaseApp | null {
   const config = getConfig();
   if (!config) return null;
-  const app = getApps()[0] ?? initializeApp(config);
-  return getFirestore(app);
+  return getApps()[0] ?? initializeApp(config);
+}
+
+export function getDb(): Firestore | null {
+  const app = getFirebaseApp();
+  return app ? getFirestore(app) : null;
 }
