@@ -10,6 +10,10 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+// Articolele noi din Firestore se randează la cerere și se
+// reîmprospătează cel mult o dată pe minut
+export const revalidate = 60;
+
 export async function generateStaticParams() {
   const articole = await getArticles();
   return articole.map((a) => ({ id: a.id }));

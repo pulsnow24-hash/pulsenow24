@@ -1,11 +1,15 @@
-import { getArticles } from "@/lib/articles";
+import { getArticles, pickLead } from "@/lib/articles";
 import { ArticleCard, LeadStory, SideStory } from "@/components/ArticleCards";
+
+// Pagina se regenerează cel mult o dată pe minut — articolele noi
+// din Firestore apar fără redeploy
+export const revalidate = 60;
 
 export default async function Home() {
   const articole = await getArticles();
 
-  // Hero: primul articol mare + 2 serioase și 1 buzz pe lateral
-  const lead = articole[0];
+  // Hero: articolul principal + 2 serioase și 1 buzz pe lateral
+  const lead = pickLead(articole);
   const serioaseToate = articole.filter((a) => !a.buzz && a.id !== lead.id);
   const buzzToate = articole.filter((a) => a.buzz && a.id !== lead.id);
   const sideArticles = [...serioaseToate.slice(0, 2), ...buzzToate.slice(0, 1)];
