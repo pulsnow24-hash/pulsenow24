@@ -32,11 +32,18 @@ const app = initializeApp({
 });
 const db = getFirestore(app);
 
-console.log(`Încarc ${DEMO_ARTICOLE.length} articole în proiectul "${projectId}"...`);
-for (const { id, ...campuri } of DEMO_ARTICOLE) {
-  await setDoc(doc(db, "articles", id), campuri);
-  console.log(`  ✓ articles/${id}`);
+async function main() {
+  console.log(`Încarc ${DEMO_ARTICOLE.length} articole în proiectul "${projectId}"...`);
+  for (const { id, ...campuri } of DEMO_ARTICOLE) {
+    await setDoc(doc(db, "articles", id), campuri);
+    console.log(`  ✓ articles/${id}`);
+  }
+  await setDoc(doc(db, "config", "ticker"), { items: DEMO_TICKER });
+  console.log("  ✓ config/ticker");
+  console.log("Gata. Verifică în consola Firebase → Firestore Database.");
 }
-await setDoc(doc(db, "config", "ticker"), { items: DEMO_TICKER });
-console.log("  ✓ config/ticker");
-console.log("Gata. Verifică în consola Firebase → Firestore Database.");
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
