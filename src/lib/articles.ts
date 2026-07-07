@@ -16,6 +16,27 @@ export interface QAPair {
   a: string;
 }
 
+export interface ArticleSEO {
+  title?: string;
+  metaDescription?: string;
+  keywords?: string[];
+  canonical?: string;
+}
+
+export interface ArticleSource {
+  nume?: string;
+  url?: string;
+  autor?: string;
+}
+
+export interface ArticleSocial {
+  facebook?: string;
+  instagram?: string;
+  x?: string;
+  linkedin?: string;
+  tiktok?: string;
+}
+
 export interface Article {
   id: string;
   /** Data publicării în format ISO — folosită la sortare */
@@ -34,6 +55,13 @@ export interface Article {
   predictie: string;
   qa: QAPair[];
   dezbatere: string;
+  /** "draft" = vizibil doar în admin; lipsă sau "publicat" = live pe site */
+  status?: "draft" | "publicat";
+  seo?: ArticleSEO;
+  sursa?: ArticleSource;
+  taguri?: string[];
+  social?: ArticleSocial;
+  imagineSugestie?: string;
 }
 
 async function loadDemo() {
@@ -47,9 +75,9 @@ export async function getArticles(): Promise<Article[]> {
   try {
     const snap = await getDocs(collection(db, "articles"));
     if (snap.empty) return (await loadDemo()).articole;
-    const articole = snap.docs.map(
-      (d) => ({ ...d.data(), id: d.id }) as Article
-    );
+    const articole = snap.docs
+      .map((d) => ({ ...d.data(), id: d.id }) as Article)
+      .filter((a) => a.status !== "draft");
     // Cele mai noi primele
     articole.sort((a, b) => (b.publicatLa ?? "").localeCompare(a.publicatLa ?? ""));
     return articole;

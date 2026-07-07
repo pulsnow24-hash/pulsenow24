@@ -138,6 +138,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
 .debate-box .db-q { font-family: var(--serif); font-size: 1.3rem; color: var(--ink); }
 
 .source-note { background: var(--bg-soft); border-left: 3px solid var(--gold); padding: 1rem 1.2rem; font-size: 0.9rem; color: var(--ink-soft); border-radius: 0 6px 6px 0; margin: 2rem 0; }
+.source-note a { color: var(--pulse-2); text-decoration: none; }
+.source-note a:hover { text-decoration: underline; }
 
 /* SHARE */
 .share-row { display: flex; gap: 0.8rem; align-items: center; margin: 2rem 0; flex-wrap: wrap; }
@@ -191,6 +193,37 @@ footer { background: #060910; border-top: 1px solid var(--bg-line); padding: 2.5
 .admin-error { color: var(--live); font-size: 0.9rem; }
 .admin-muted { color: var(--ink-soft); font-size: 0.85rem; }
 .admin-status { background: rgba(46,204,113,0.1); border: 1px solid var(--green); color: var(--green); border-radius: 6px; padding: 0.6rem 1rem; font-size: 0.9rem; margin-bottom: 1rem; }
+
+/* ADMIN — redacție */
+.admin-wide { max-width: 900px; }
+.admin-tabs { display: flex; gap: 0.4rem; border-bottom: 1px solid var(--bg-line); margin-bottom: 1.5rem; flex-wrap: wrap; }
+.admin-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--ink-soft); font-size: 0.95rem; font-weight: 600; padding: 0.7rem 1rem; cursor: pointer; }
+.admin-tab:hover { color: var(--ink); }
+.admin-tab.active { color: var(--pulse-2); border-bottom-color: var(--pulse-1); }
+.admin-ai { background: linear-gradient(135deg, rgba(30,144,255,0.08), rgba(176,38,255,0.08)); border: 1px solid var(--bg-line); border-radius: 10px; padding: 1.4rem; margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.8rem; }
+.admin-ai-header { display: flex; align-items: center; gap: 0.6rem; }
+.admin-ai-header .tag { background: var(--gold); color: var(--bg); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.25rem 0.6rem; border-radius: 4px; }
+.admin-ai-header h2 { font-family: var(--serif); font-size: 1.3rem; margin: 0; }
+.admin-ai-modes { display: flex; gap: 1.5rem; font-size: 0.9rem; }
+.admin-ai-modes .admin-check { padding-bottom: 0; }
+.admin-input { background: var(--bg-soft); border: 1px solid var(--bg-line); border-radius: 6px; padding: 0.6rem 0.8rem; color: var(--ink); font-size: 0.95rem; font-family: var(--sans); width: 100%; }
+.admin-input:focus { outline: none; border-color: var(--pulse-1); }
+.admin-ai-btn { align-self: flex-start; font-size: 1rem; }
+.admin-score { font-weight: 800; font-size: 0.85rem; padding: 0.15rem 0.5rem; border-radius: 4px; }
+.admin-score.high { background: rgba(46,204,113,0.15); color: var(--green); }
+.admin-score.mid { background: rgba(255,201,77,0.15); color: var(--gold); }
+.admin-score.low { background: rgba(138,151,171,0.15); color: var(--ink-soft); }
+.admin-chip { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); border: 1px solid var(--bg-line); border-radius: 4px; padding: 0.15rem 0.5rem; }
+.admin-chip.ok { color: var(--green); border-color: var(--green); }
+.admin-chip.draft { color: var(--gold); border-color: var(--gold); }
+.admin-inbox-main { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-width: 240px; }
+.admin-inbox-meta { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.admin-dim { opacity: 0.55; }
+.admin-copy { margin-top: 0.3rem; padding: 0.3rem 0.7rem; font-size: 0.78rem; align-self: flex-start; }
+
+/* TAGURI ARTICOL */
+.tag-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1.5rem 0; }
+.tag-chip { font-size: 0.78rem; color: var(--pulse-2); border: 1px solid var(--bg-line); border-radius: 999px; padding: 0.25rem 0.8rem; }
 
 /* RESPONSIVE */
 @media (max-width: 880px) {

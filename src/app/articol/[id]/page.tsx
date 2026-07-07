@@ -22,13 +22,16 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const article = await getArticleById(id);
-  if (!article) return {};
+  if (!article || article.status === "draft") return {};
+  const title = article.seo?.title || article.titlu;
+  const description = article.seo?.metaDescription || article.sumar;
   return {
-    title: `${article.titlu} — PulsNow24`,
-    description: article.sumar,
+    title: `${title} — PulsNow24`,
+    description,
+    keywords: article.seo?.keywords,
     openGraph: {
-      title: article.titlu,
-      description: article.sumar,
+      title,
+      description,
       type: "article",
       locale: "ro_RO",
       siteName: "PulsNow24",
@@ -39,7 +42,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ArticlePage({ params }: Props) {
   const { id } = await params;
   const article = await getArticleById(id);
-  if (!article) notFound();
+  if (!article || article.status === "draft") notFound();
 
   return (
     <div className="article-view">
@@ -96,10 +99,36 @@ export default async function ArticlePage({ params }: Props) {
           <div className="db-q">{article.dezbatere}</div>
         </div>
 
+        {article.taguri && article.taguri.length > 0 && (
+          <div className="tag-row">
+            {article.taguri.map((tag) => (
+              <span className="tag-chip" key={tag}>
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="source-note">
-          <strong>Sursă:</strong> Articol demonstrativ. Conținutul e
-          exemplificativ, pentru a-ți arăta cum arată formatul PulsNow24 pe
-          site.
+          {article.sursa?.nume || article.sursa?.url ? (
+            <>
+              <strong>Sursă:</strong>{" "}
+              {article.sursa.url ? (
+                <a href={article.sursa.url} target="_blank" rel="noreferrer nofollow">
+                  {article.sursa.nume || article.sursa.url}
+                </a>
+              ) : (
+                article.sursa.nume
+              )}
+              {article.sursa.autor && <> · {article.sursa.autor}</>}
+            </>
+          ) : (
+            <>
+              <strong>Sursă:</strong> Articol demonstrativ. Conținutul e
+              exemplificativ, pentru a-ți arăta cum arată formatul PulsNow24 pe
+              site.
+            </>
+          )}
         </div>
 
         <ShareRow article={article} />

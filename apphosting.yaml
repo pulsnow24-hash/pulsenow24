@@ -23,3 +23,10 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Cheia Claude API pentru funcțiile AI din admin. Înainte de a decomenta:
+  #   1. Creează secretul:  firebase apphosting:secrets:set ANTHROPIC_API_KEY
+  #   2. Decomentează cele 4 linii de mai jos și fă push.
+  # - variable: ANTHROPIC_API_KEY
+  #   secret: ANTHROPIC_API_KEY
+  #   availability:
+  #     - RUNTIME
