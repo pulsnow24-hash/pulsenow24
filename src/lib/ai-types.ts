@@ -23,6 +23,8 @@ export interface GeneratedArticle {
   imagineSugestie: string;
   sursaNume: string;
   autor: string;
+  /** og:image extras din pagina-sursă (completat de server, nu de model) */
+  imagineUrl?: string;
 }
 
 export interface SocialPosts {

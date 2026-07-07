@@ -60,9 +60,19 @@ export default async function ArticlePage({ params }: Props) {
         <span>·</span>
         <span>{article.citire} citire</span>
       </div>
-      <div className={`article-hero${article.buzz ? " is-buzz" : ""}`}>
-        <PulsIcon color={iconColor(article)} size={80} />
-      </div>
+      {article.imagine ? (
+        <figure className="article-figure">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={article.imagine} alt={article.titlu} />
+          {article.imagineCredit && (
+            <figcaption>{article.imagineCredit}</figcaption>
+          )}
+        </figure>
+      ) : (
+        <div className={`article-hero${article.buzz ? " is-buzz" : ""}`}>
+          <PulsIcon color={iconColor(article)} size={80} />
+        </div>
+      )}
       <div className="article-body">
         <div className="format-block fb-fact">
           <span className="fb-label">● Faptul verificat</span>

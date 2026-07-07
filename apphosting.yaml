@@ -1,7 +1,7 @@
 # Configurația Firebase App Hosting.
 # Variabilele NEXT_PUBLIC_* sunt incluse în bundle-ul de browser la build —
 # sunt publice prin design (orice site Firebase le expune), securitatea
-# vine din regulile Firestore, nu din secretul acestor valori.
+# vine din regulile Firestore/Storage, nu din secretul acestor valori.
 env:
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
     value: AIzaSyBRpDvbgvu3XGRurXlB83gHFBae6ihUG34
@@ -23,10 +23,13 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # Cheia Claude API pentru funcțiile AI din admin. Înainte de a decomenta:
-  #   1. Creează secretul:  firebase apphosting:secrets:set ANTHROPIC_API_KEY
-  #   2. Decomentează cele 4 linii de mai jos și fă push.
-  # - variable: ANTHROPIC_API_KEY
-  #   secret: ANTHROPIC_API_KEY
-  #   availability:
-  #     - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: pulsenow24.firebasestorage.app
+    availability:
+      - BUILD
+      - RUNTIME
+  # Cheia Claude API — creată cu: firebase apphosting:secrets:set ANTHROPIC_API_KEY
+  - variable: ANTHROPIC_API_KEY
+    secret: ANTHROPIC_API_KEY
+    availability:
+      - RUNTIME

@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Auth } from "firebase/auth";
 import { doc, setDoc, type Firestore } from "firebase/firestore/lite";
+import {
+  getDownloadURL,
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+} from "firebase/storage";
 import type { ArticleSocial } from "@/lib/articles";
 import type { GeneratedArticle, SocialPosts } from "@/lib/ai-types";
 import { callApi } from "./api";
@@ -40,7 +46,8 @@ export default function ArticleTab({
   const [social, setSocial] = useState<ArticleSocial | null>(null);
   const [status, setStatus] = useState("");
   const [eroare, setEroare] = useState("");
-  const [busy, setBusy] = useState<"" | "save" | "ai" | "social">("");
+  const [busy, setBusy] = useState<"" | "save" | "ai" | "social" | "imagine">("");
+  const fileInput = useRef<HTMLInputElement>(null);
 
   // Sursa AI
   const [aiMode, setAiMode] = useState<"url" | "text">("url");
@@ -121,6 +128,78 @@ export default function ArticleTab({
       setBusy("");
     }
   }
+
+  /** Urcă un blob în Firebase Storage și întoarce URL-ul public */
+  async function urcaInStorage(blob: Blob, contentType: string): Promise<string> {
+    const storage = getStorage(auth.app);
+    const ext = (contentType.split("/")[1] ?? "jpg").split("+")[0];
+    const nume = `${slugify(form.titlu) || "imagine"}-${Date.now()}.${ext}`;
+    const r = storageRef(storage, `articole/${nume}`);
+    await uploadBytes(r, blob, { contentType });
+    return getDownloadURL(r);
+  }
+
+  async function incarcaImagine(file: File) {
+    if (!file.type.startsWith("image/")) {
+      arataEroare("Fișierul ales nu e o imagine.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      arataEroare("Imaginea depășește 10 MB.");
+      return;
+    }
+    setBusy("imagine");
+    arataStatus("Se încarcă imaginea…");
+    try {
+      const url = await urcaInStorage(file, file.type);
+      set("imagineUrl", url);
+      arataStatus("✓ Imagine încărcată.");
+    } catch (err) {
+      arataEroare(
+        `Nu am putut încărca imaginea: ${err instanceof Error ? err.message : err}. Verifică regulile Firebase Storage.`
+      );
+    } finally {
+      setBusy("");
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+
+  /** Copiază imaginea din sursa externă în Firebase Storage */
+  async function importaImagineaSursei() {
+    if (!form.imagineUrl.trim()) return;
+    setBusy("imagine");
+    arataStatus("Se importă imaginea din sursă…");
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Sesiune expirată");
+      const token = await user.getIdToken();
+      const res = await fetch("/api/image/fetch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ url: form.imagineUrl.trim() }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? `Eroare server (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = await urcaInStorage(blob, blob.type || "image/jpeg");
+      set("imagineUrl", url);
+      arataStatus("✓ Imaginea a fost copiată în galeria ta — nu mai depinzi de site-ul sursă.");
+    } catch (err) {
+      arataEroare(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const imagineExterna =
+    !!form.imagineUrl.trim() &&
+    !form.imagineUrl.includes("firebasestorage.googleapis.com") &&
+    !form.imagineUrl.includes(".firebasestorage.app");
 
   async function salveaza(statusArticol: "draft" | "publicat") {
     if (!form.titlu.trim()) {
@@ -371,7 +450,7 @@ export default function ArticleTab({
         </fieldset>
 
         <fieldset className="admin-qa">
-          <legend>Sursă & imagine</legend>
+          <legend>Sursă</legend>
           <div className="admin-row">
             <label>
               Sursa (publicația)
@@ -390,8 +469,87 @@ export default function ArticleTab({
               <input value={form.autor} onChange={(e) => set("autor", e.target.value)} />
             </label>
           </div>
+        </fieldset>
+
+        <fieldset className="admin-qa">
+          <legend>Imagine principală</legend>
+          {form.imagineUrl.trim() ? (
+            <div className="admin-img-preview">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={form.imagineUrl} alt="Previzualizare imagine articol" />
+              {imagineExterna && (
+                <p className="admin-muted">
+                  ⚠️ Imaginea e găzduită pe site-ul sursă — importă-o în galeria
+                  ta ca să nu dispară dacă sursa o șterge.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="admin-muted">
+              Nicio imagine. Încarcă una sau generează articolul dintr-un link —
+              AI-ul preia automat imaginea principală a sursei.
+            </p>
+          )}
+          <div className="admin-actions">
+            <button
+              type="button"
+              className="share-btn secondary"
+              onClick={() => fileInput.current?.click()}
+              disabled={busy !== ""}
+            >
+              {busy === "imagine" ? "Se procesează…" : "📁 Încarcă imagine"}
+            </button>
+            {imagineExterna && (
+              <button
+                type="button"
+                className="share-btn secondary"
+                onClick={importaImagineaSursei}
+                disabled={busy !== ""}
+              >
+                ⤓ Importă în galeria mea
+              </button>
+            )}
+            {form.imagineUrl.trim() && (
+              <button
+                type="button"
+                className="back-btn admin-danger"
+                onClick={() => set("imagineUrl", "")}
+                disabled={busy !== ""}
+              >
+                Elimină imaginea
+              </button>
+            )}
+          </div>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) incarcaImagine(file);
+            }}
+          />
+          <div className="admin-row">
+            <label>
+              URL imagine (sau lipește unul direct)
+              <input
+                value={form.imagineUrl}
+                onChange={(e) => set("imagineUrl", e.target.value)}
+                placeholder="https://…"
+              />
+            </label>
+            <label>
+              Credit foto
+              <input
+                value={form.imagineCredit}
+                onChange={(e) => set("imagineCredit", e.target.value)}
+                placeholder="ex: Foto: Agerpres"
+              />
+            </label>
+          </div>
           <label>
-            Imagine sugerată (descriere pentru editor)
+            Imagine sugerată de AI (descriere pentru editor)
             <input
               value={form.imagineSugestie}
               onChange={(e) => set("imagineSugestie", e.target.value)}

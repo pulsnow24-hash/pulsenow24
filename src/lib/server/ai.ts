@@ -54,8 +54,30 @@ function decodeEntities(s: string): string {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
 }
 
-/** Descarcă pagina și extrage textul brut — Claude separă conținutul de zgomot */
-export async function fetchPageText(url: string): Promise<string> {
+/** Extrage imaginea principală declarată de pagină (og:image / twitter:image) */
+function extractMainImage(html: string, baseUrl: string): string {
+  const patterns = [
+    /<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::secure_url)?["']/i,
+    /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      try {
+        return new URL(decodeEntities(match[1]), baseUrl).href;
+      } catch {
+        // URL invalid — încearcă următorul pattern
+      }
+    }
+  }
+  return "";
+}
+
+/** Descarcă pagina și extrage textul brut + imaginea principală */
+export async function fetchPage(
+  url: string
+): Promise<{ text: string; imageUrl: string }> {
   const res = await fetch(url, {
     headers: {
       "User-Agent":
@@ -73,7 +95,7 @@ export async function fetchPageText(url: string): Promise<string> {
       .replace(/<style[\s\S]*?<\/style>/gi, " ")
       .replace(/<[^>]+>/g, " ")
   ).replace(/\s+/g, " ");
-  return text.slice(0, 30000);
+  return { text: text.slice(0, 30000), imageUrl: extractMainImage(html, url) };
 }
 
 const QA_SCHEMA = {
@@ -155,7 +177,13 @@ export async function generateArticle(input: {
   text?: string;
 }): Promise<GeneratedArticle> {
   const client = getClient();
-  const sourceText = input.url ? await fetchPageText(input.url) : input.text!;
+  let sourceText = input.text ?? "";
+  let imageUrl = "";
+  if (input.url) {
+    const page = await fetchPage(input.url);
+    sourceText = page.text;
+    imageUrl = page.imageUrl;
+  }
 
   const response = await client.messages.create({
     model: MODEL,
@@ -175,7 +203,10 @@ export async function generateArticle(input: {
     ],
   });
 
-  return JSON.parse(textOf(response)) as GeneratedArticle;
+  const articol = JSON.parse(textOf(response)) as GeneratedArticle;
+  // Imaginea vine din metadatele paginii (og:image), nu de la model
+  articol.imagineUrl = imageUrl;
+  return articol;
 }
 
 const SOCIAL_SCHEMA = {

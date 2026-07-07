@@ -62,6 +62,9 @@ export interface Article {
   taguri?: string[];
   social?: ArticleSocial;
   imagineSugestie?: string;
+  /** URL-ul imaginii principale (Firebase Storage sau extern) */
+  imagine?: string;
+  imagineCredit?: string;
 }
 
 async function loadDemo() {

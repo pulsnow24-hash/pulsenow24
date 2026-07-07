@@ -21,6 +21,10 @@ export function shortDate(a: Article) {
 export function LeadStory({ article }: { article: Article }) {
   return (
     <Link className="lead-story" href={`/articol/${article.id}`}>
+      {article.imagine && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="lead-img" src={article.imagine} alt="" />
+      )}
       <span className={`badge ${badgeClass(article)}`}>
         {article.badge === "breaking" ? "Breaking" : article.categorie}
       </span>
@@ -53,9 +57,14 @@ export function ArticleCard({ article }: { article: Article }) {
       href={`/articol/${article.id}`}
     >
       <div className="card-img">
-        <div className="ph">
-          <PulsIcon color={iconColor(article)} size={44} />
-        </div>
+        {article.imagine ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={article.imagine} alt="" />
+        ) : (
+          <div className="ph">
+            <PulsIcon color={iconColor(article)} size={44} />
+          </div>
+        )}
       </div>
       <div className="card-body">
         <div className="cat">{article.categorie}</div>

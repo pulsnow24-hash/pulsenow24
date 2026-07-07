@@ -38,6 +38,8 @@ export interface FormState {
   sursaUrl: string;
   autor: string;
   imagineSugestie: string;
+  imagineUrl: string;
+  imagineCredit: string;
 }
 
 export const FORM_GOL: FormState = {
@@ -62,6 +64,8 @@ export const FORM_GOL: FormState = {
   sursaUrl: "",
   autor: "",
   imagineSugestie: "",
+  imagineUrl: "",
+  imagineCredit: "",
 };
 
 export function slugify(s: string): string {
@@ -119,6 +123,8 @@ export function articleToForm(a: Article): FormState {
     sursaUrl: a.sursa?.url ?? "",
     autor: a.sursa?.autor ?? "",
     imagineSugestie: a.imagineSugestie ?? "",
+    imagineUrl: a.imagine ?? "",
+    imagineCredit: a.imagineCredit ?? "",
   };
 }
 
@@ -144,6 +150,8 @@ export function generatedToForm(g: GeneratedArticle, sourceUrl: string): FormSta
     sursaUrl: sourceUrl,
     autor: g.autor,
     imagineSugestie: g.imagineSugestie,
+    imagineUrl: g.imagineUrl ?? "",
+    imagineCredit: g.imagineUrl && g.sursaNume ? `Foto: ${g.sursaNume}` : "",
   };
 }
 
@@ -201,6 +209,8 @@ export function formToArticle(
   if (Object.keys(sursa).length) articol.sursa = sursa;
 
   if (form.imagineSugestie.trim()) articol.imagineSugestie = form.imagineSugestie.trim();
+  if (form.imagineUrl.trim()) articol.imagine = form.imagineUrl.trim();
+  if (form.imagineCredit.trim()) articol.imagineCredit = form.imagineCredit.trim();
   if (opts.social && Object.values(opts.social).some(Boolean)) {
     articol.social = opts.social;
   }
