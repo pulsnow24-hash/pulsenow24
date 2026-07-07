@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore/lite";
 import type { GeneratedArticle, InboxScoredItem } from "@/lib/ai-types";
 import { callApi, hashLink } from "./api";
+import AiProgress from "./AiProgress";
 import { generatedToForm } from "./formState";
 import type { EditRequest } from "./AdminClient";
 
@@ -50,13 +51,15 @@ export default function InboxTab({
   }, [db]);
 
   useEffect(() => {
+    // Încărcare inițială de date — setState rulează după await, nu sincron
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     incarca().catch(() => setEroare("Nu am putut încărca inboxul."));
   }, [incarca]);
 
   async function refresh() {
     setBusy("refresh");
     setEroare("");
-    setStatus("Citesc fluxurile RSS și evaluez știrile cu AI… durează ~30 de secunde.");
+    setStatus("");
     try {
       const { items: scored, feedErrors } = await callApi<{
         items: InboxScoredItem[];
@@ -93,7 +96,7 @@ export default function InboxTab({
   async function genereazaDraft(item: InboxDoc) {
     setBusy(item.id);
     setEroare("");
-    setStatus(`AI-ul scrie draftul pentru „${item.titlu.slice(0, 60)}…"`);
+    setStatus("");
     try {
       const g = await callApi<GeneratedArticle>(auth, "/api/ai/generate", {
         url: item.link,
@@ -138,6 +141,30 @@ export default function InboxTab({
       {status && <p className="admin-status">{status}</p>}
       {eroare && <p className="admin-error">{eroare}</p>}
 
+      {busy === "refresh" && (
+        <AiProgress
+          durata={35}
+          etape={[
+            "Citesc fluxurile RSS (Digi24, HotNews, G4Media, Biziday)…",
+            "AI-ul evaluează importanța fiecărei știri…",
+            "Calculez scorurile și categoriile…",
+            "Salvez știrile noi în inbox…",
+          ]}
+        />
+      )}
+      {busy !== "" && busy !== "refresh" && (
+        <AiProgress
+          durata={45}
+          etape={[
+            "Descarc articolul-sursă…",
+            "AI-ul citește și analizează știrea…",
+            "Scriu draftul în formatul PulsNow24…",
+            "Generez SEO, taguri și imaginea…",
+            "Aproape gata…",
+          ]}
+        />
+      )}
+
       <label className="admin-check">
         <input
           type="checkbox"
@@ -150,7 +177,7 @@ export default function InboxTab({
       <ul className="admin-list">
         {vizibile.length === 0 && (
           <li className="admin-muted">
-            Inboxul e gol — apasă „Caută știri noi".
+            {"Inboxul e gol — apasă „Caută știri noi”."}
           </li>
         )}
         {vizibile.map((item) => (

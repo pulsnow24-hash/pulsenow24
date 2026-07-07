@@ -12,6 +12,7 @@ import {
 import type { ArticleSocial } from "@/lib/articles";
 import type { GeneratedArticle, SocialPosts } from "@/lib/ai-types";
 import { callApi } from "./api";
+import AiProgress from "./AiProgress";
 import {
   CATEGORII,
   FORM_GOL,
@@ -129,6 +130,8 @@ export default function ArticleTab({
 
   useEffect(() => {
     if (!editRequest) return;
+    // Consum intenționat un eveniment venit din alt tab — o singură randare în plus
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setForm(editRequest.form);
     setEditId(editRequest.editId);
     setSocial(editRequest.social);
@@ -162,7 +165,8 @@ export default function ArticleTab({
       return;
     }
     setBusy("ai");
-    arataStatus("AI-ul citește sursa și scrie articolul… durează 30-60 de secunde.");
+    setStatus("");
+    setEroare("");
     try {
       const g = await callApi<GeneratedArticle>(auth, "/api/ai/generate", input);
       setForm(generatedToForm(g, input.url ?? ""));
@@ -184,7 +188,8 @@ export default function ArticleTab({
       return;
     }
     setBusy("social");
-    arataStatus("AI-ul scrie postările pentru rețele…");
+    setStatus("");
+    setEroare("");
     try {
       const posts = await callApi<SocialPosts>(auth, "/api/ai/social", {
         titlu: form.titlu,
@@ -358,6 +363,19 @@ export default function ArticleTab({
         >
           {busy === "ai" ? "Se generează…" : "⚡ Importă și generează cu AI"}
         </button>
+        {busy === "ai" && (
+          <AiProgress
+            durata={45}
+            etape={[
+              "Descarc pagina-sursă…",
+              "Extrag conținutul și imaginea…",
+              "AI-ul citește și analizează știrea…",
+              "Scriu articolul în formatul PulsNow24…",
+              "Generez SEO, taguri și sursa…",
+              "Aproape gata…",
+            ]}
+          />
+        )}
         <p className="admin-muted">
           AI-ul completează automat tot formularul: titlu, format PulsNow24,
           SEO, taguri, sursă. Tu doar verifici.
@@ -642,6 +660,16 @@ export default function ArticleTab({
           >
             {busy === "social" ? "Se generează…" : "Generează postări"}
           </button>
+          {busy === "social" && (
+            <AiProgress
+              durata={18}
+              etape={[
+                "Analizez articolul…",
+                "Scriu postările pentru fiecare platformă…",
+                "Aproape gata…",
+              ]}
+            />
+          )}
           {social &&
             PLATFORME.map(({ key, label }) => (
               <label key={key}>

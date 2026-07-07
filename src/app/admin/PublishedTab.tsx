@@ -37,6 +37,8 @@ export default function PublishedTab({
 
   useEffect(() => {
     if (!active) return;
+    // Încărcare inițială de date — setState rulează după await, nu sincron
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     incarca();
     getDoc(doc(db, "config", "ticker")).then((snap) => {
       if (snap.exists()) setTicker((snap.data().items as string[]).join("\n"));
