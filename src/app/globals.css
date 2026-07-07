@@ -221,6 +221,21 @@ footer { background: #060910; border-top: 1px solid var(--bg-line); padding: 2.5
 .admin-dim { opacity: 0.55; }
 .admin-copy { margin-top: 0.3rem; padding: 0.3rem 0.7rem; font-size: 0.78rem; align-self: flex-start; }
 
+/* PROGRES PUBLICARE */
+.admin-progress { border: 1px solid var(--bg-line); background: var(--bg-soft); border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.6rem; position: sticky; top: 84px; z-index: 50; }
+.admin-progress-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); }
+.admin-progress-pct { font-size: 1.1rem; letter-spacing: 0; }
+.admin-progress-pct.high { color: var(--green); }
+.admin-progress-pct.mid { color: var(--gold); }
+.admin-progress-pct.low { color: var(--live); }
+.admin-progress-track { height: 8px; background: var(--bg-line); border-radius: 999px; overflow: hidden; }
+.admin-progress-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease, background 0.4s ease; }
+.admin-progress-fill.high { background: linear-gradient(90deg, var(--pulse-1), var(--green)); }
+.admin-progress-fill.mid { background: linear-gradient(90deg, var(--pulse-1), var(--gold)); }
+.admin-progress-fill.low { background: linear-gradient(90deg, var(--live), var(--gold)); }
+.admin-progress-missing { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.admin-progress-done { color: var(--green); font-size: 0.9rem; font-weight: 600; margin: 0; }
+
 /* IMAGINI ARTICOLE */
 .card-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .lead-story .lead-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.45; z-index: 0; }

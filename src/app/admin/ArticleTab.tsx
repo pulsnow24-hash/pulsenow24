@@ -22,6 +22,79 @@ import {
 } from "./formState";
 import type { EditRequest } from "./AdminClient";
 
+/** Elementele care compun scorul de completitudine al unui articol */
+function verificaCompletitudine(form: FormState, social: ArticleSocial | null) {
+  const items: { label: string; done: boolean }[] = [
+    { label: "Titlu", done: !!form.titlu.trim() },
+    { label: "Sumar", done: !!form.sumar.trim() },
+    { label: "Faptul verificat", done: !!form.fapt.trim() },
+    { label: "Unghiul ascuns", done: !!form.unghi.trim() },
+    { label: "Opinia", done: !!form.opinie.trim() },
+    { label: "Predicția", done: !!form.predictie.trim() },
+    { label: "Întrebarea de dezbatere", done: !!form.dezbatere.trim() },
+    {
+      label: "Min. 3 întrebări rapide",
+      done: form.qa.filter((p) => p.q.trim() && p.a.trim()).length >= 3,
+    },
+    { label: "Title SEO", done: !!form.seoTitle.trim() },
+    { label: "Meta description", done: !!form.metaDescription.trim() },
+    { label: "Keywords", done: !!form.keywords.trim() },
+    { label: "Taguri", done: !!form.taguri.trim() },
+    { label: "Imagine principală", done: !!form.imagineUrl.trim() },
+    { label: "Credit foto", done: !!form.imagineCredit.trim() },
+    { label: "Sursă", done: !!form.sursaNume.trim() || !!form.sursaUrl.trim() },
+    {
+      label: "Postări social media",
+      done: !!social && Object.values(social).some((v) => v && v.trim()),
+    },
+  ];
+  const gata = items.filter((i) => i.done).length;
+  const procent = Math.round((gata / items.length) * 100);
+  return { items, procent, lipsesc: items.filter((i) => !i.done) };
+}
+
+function ProgressPublicare({
+  form,
+  social,
+}: {
+  form: FormState;
+  social: ArticleSocial | null;
+}) {
+  const { procent, lipsesc } = verificaCompletitudine(form, social);
+  const nivel = procent >= 80 ? "high" : procent >= 50 ? "mid" : "low";
+  return (
+    <div className="admin-progress">
+      <div className="admin-progress-head">
+        <span>Pregătire pentru publicare</span>
+        <strong className={`admin-progress-pct ${nivel}`}>{procent}%</strong>
+      </div>
+      <div
+        className="admin-progress-track"
+        role="progressbar"
+        aria-valuenow={procent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <div
+          className={`admin-progress-fill ${nivel}`}
+          style={{ width: `${procent}%` }}
+        />
+      </div>
+      {lipsesc.length > 0 ? (
+        <div className="admin-progress-missing">
+          {lipsesc.map((item) => (
+            <span className="admin-chip" key={item.label}>
+              {item.label}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="admin-progress-done">✓ Articol complet — gata de publicare!</p>
+      )}
+    </div>
+  );
+}
+
 const PLATFORME: { key: keyof ArticleSocial; label: string }[] = [
   { key: "facebook", label: "Facebook" },
   { key: "instagram", label: "Instagram" },
@@ -302,6 +375,8 @@ export default function ArticleTab({
           </button>
         )}
       </div>
+
+      <ProgressPublicare form={form} social={social} />
 
       <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
         <label>
