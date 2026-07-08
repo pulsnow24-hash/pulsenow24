@@ -1,20 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { Auth } from "firebase/auth";
 import {
   collection,
   doc,
   getDocs,
   setDoc,
   updateDoc,
-  type Firestore,
 } from "firebase/firestore/lite";
 import type { GeneratedArticle, InboxScoredItem } from "@/lib/ai-types";
 import { callApi, hashLink } from "./api";
 import AiProgress from "./AiProgress";
 import { generatedToForm } from "./formState";
-import type { EditRequest } from "./AdminClient";
+import { useNewsroom } from "@/components/admin/newsroom-provider";
 
 interface InboxDoc extends InboxScoredItem {
   id: string;
@@ -28,15 +26,8 @@ function scorClass(scor: number): string {
   return "admin-score low";
 }
 
-export default function InboxTab({
-  db,
-  auth,
-  onOpenInEditor,
-}: {
-  db: Firestore;
-  auth: Auth;
-  onOpenInEditor: (request: EditRequest) => void;
-}) {
+export default function InboxTab() {
+  const { db, auth, requestEdit } = useNewsroom();
   const [items, setItems] = useState<InboxDoc[]>([]);
   const [status, setStatus] = useState("");
   const [eroare, setEroare] = useState("");
@@ -106,7 +97,7 @@ export default function InboxTab({
       await updateDoc(doc(db, "inbox", item.id), { status: "procesat" });
       await incarca();
       setStatus("");
-      onOpenInEditor({ form, editId: null, social: null });
+      requestEdit({ form, editId: null, social: null });
     } catch (err) {
       setStatus("");
       setEroare(err instanceof Error ? err.message : String(err));

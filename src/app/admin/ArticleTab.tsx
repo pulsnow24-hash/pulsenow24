@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Auth } from "firebase/auth";
-import { doc, setDoc, type Firestore } from "firebase/firestore/lite";
+import { doc, setDoc } from "firebase/firestore/lite";
 import {
   getDownloadURL,
   getStorage,
@@ -21,7 +20,7 @@ import {
   slugify,
   type FormState,
 } from "./formState";
-import type { EditRequest } from "./AdminClient";
+import { useNewsroom } from "@/components/admin/newsroom-provider";
 
 /** Elementele care compun scorul de completitudine al unui articol */
 function verificaCompletitudine(form: FormState, social: ArticleSocial | null) {
@@ -104,17 +103,8 @@ const PLATFORME: { key: keyof ArticleSocial; label: string }[] = [
   { key: "tiktok", label: "TikTok (idee clip)" },
 ];
 
-export default function ArticleTab({
-  db,
-  auth,
-  editRequest,
-  onEditRequestConsumed,
-}: {
-  db: Firestore;
-  auth: Auth;
-  editRequest: EditRequest | null;
-  onEditRequestConsumed: () => void;
-}) {
+export default function ArticleTab() {
+  const { db, auth, consumePendingEdit } = useNewsroom();
   const [form, setForm] = useState<FormState>(FORM_GOL);
   const [editId, setEditId] = useState<string | null>(null);
   const [social, setSocial] = useState<ArticleSocial | null>(null);
@@ -129,20 +119,22 @@ export default function ArticleTab({
   const [aiText, setAiText] = useState("");
 
   useEffect(() => {
-    if (!editRequest) return;
-    // Consum intenționat un eveniment venit din alt tab — o singură randare în plus
+    // La montare, preluăm articolul trimis din Inbox/Articole (dacă există)
+    const req = consumePendingEdit();
+    if (!req) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setForm(editRequest.form);
-    setEditId(editRequest.editId);
-    setSocial(editRequest.social);
+    setForm(req.form);
+    setEditId(req.editId);
+    setSocial(req.social);
     setStatus(
-      editRequest.editId
-        ? `Editezi articolul: ${editRequest.editId}`
+      req.editId
+        ? `Editezi articolul: ${req.editId}`
         : "Draft generat — verifică fiecare secțiune înainte de publicare."
     );
     setEroare("");
-    onEditRequestConsumed();
-  }, [editRequest, onEditRequestConsumed]);
+    // Rulează o singură dată, la montarea editorului
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));

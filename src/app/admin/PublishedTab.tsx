@@ -8,21 +8,13 @@ import {
   getDoc,
   getDocs,
   setDoc,
-  type Firestore,
 } from "firebase/firestore/lite";
 import type { Article } from "@/lib/articles";
 import { articleToForm } from "./formState";
-import type { EditRequest } from "./AdminClient";
+import { useNewsroom } from "@/components/admin/newsroom-provider";
 
-export default function PublishedTab({
-  db,
-  active,
-  onOpenInEditor,
-}: {
-  db: Firestore;
-  active: boolean;
-  onOpenInEditor: (request: EditRequest) => void;
-}) {
+export default function PublishedTab() {
+  const { db, requestEdit } = useNewsroom();
   const [articole, setArticole] = useState<Article[]>([]);
   const [ticker, setTicker] = useState("");
   const [status, setStatus] = useState("");
@@ -36,14 +28,13 @@ export default function PublishedTab({
   }, [db]);
 
   useEffect(() => {
-    if (!active) return;
     // Încărcare inițială de date — setState rulează după await, nu sincron
     // eslint-disable-next-line react-hooks/set-state-in-effect
     incarca();
     getDoc(doc(db, "config", "ticker")).then((snap) => {
       if (snap.exists()) setTicker((snap.data().items as string[]).join("\n"));
     });
-  }, [db, active, incarca]);
+  }, [db, incarca]);
 
   function arataStatus(mesaj: string) {
     setStatus(mesaj);
@@ -51,7 +42,7 @@ export default function PublishedTab({
   }
 
   function editeaza(a: Article) {
-    onOpenInEditor({
+    requestEdit({
       form: articleToForm(a),
       editId: a.id,
       social: a.social ?? null,

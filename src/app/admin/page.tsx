@@ -1,11 +1,5 @@
-import type { Metadata } from "next";
-import AdminClient from "./AdminClient";
+import Dashboard from "@/components/admin/dashboard";
 
-export const metadata: Metadata = {
-  title: "Administrare — PulsNow24",
-  robots: { index: false, follow: false },
-};
-
-export default function AdminPage() {
-  return <AdminClient />;
+export default function AdminDashboardPage() {
+  return <Dashboard />;
 }
