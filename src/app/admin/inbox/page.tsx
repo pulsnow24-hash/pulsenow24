@@ -1,9 +1,5 @@
-import InboxTab from "../InboxTab";
+import InboxView from "@/components/admin/inbox/inbox-view";
 
 export default function InboxPage() {
-  return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
-      <InboxTab />
-    </div>
-  );
+  return <InboxView />;
 }

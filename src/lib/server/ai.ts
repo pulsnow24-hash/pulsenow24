@@ -263,12 +263,37 @@ const SCORING_SCHEMA = {
         type: "object",
         properties: {
           index: { type: "integer" },
-          scor: { type: "integer" },
+          importanceScore: { type: "integer" },
+          trustScore: { type: "integer" },
+          viralScore: { type: "integer" },
+          seoScore: { type: "integer" },
+          fakeNewsRisk: { type: "integer" },
           categorie: { type: "string", enum: CATEGORII },
-          retine: { type: "boolean" },
-          motiv: { type: "string" },
+          countryCode: { type: "string" },
+          priority: {
+            type: "string",
+            enum: ["breaking", "high", "normal", "low"],
+          },
+          readingTime: { type: "integer" },
+          isDuplicate: { type: "boolean" },
+          keep: { type: "boolean" },
+          reason: { type: "string" },
         },
-        required: ["index", "scor", "categorie", "retine", "motiv"],
+        required: [
+          "index",
+          "importanceScore",
+          "trustScore",
+          "viralScore",
+          "seoScore",
+          "fakeNewsRisk",
+          "categorie",
+          "countryCode",
+          "priority",
+          "readingTime",
+          "isDuplicate",
+          "keep",
+          "reason",
+        ],
         additionalProperties: false,
       },
     },
@@ -276,6 +301,26 @@ const SCORING_SCHEMA = {
   required: ["items"],
   additionalProperties: false,
 };
+
+const SCORING_SYSTEM = `Ești editorul-șef de gardă la PulsNow24, un site românesc de știri (business, AI & tech, politică, geopolitică, actualitate, plus monden și viral). Evaluezi în timp real știrile din fluxurile RSS și le acorzi scoruri pentru redacție.
+
+Pentru FIECARE știre din listă, evaluează pe o scară 0-100:
+- importanceScore: cât de importantă e pentru publicul român acum (impact larg, urgență, miză, interes de căutare). O știre locală minoră = 20-40; o decizie majoră națională sau internațională = 85-100.
+- trustScore: încrederea în sursă și în modul de relatare (sursă consacrată + relatare factuală, echilibrată = mare; titlu senzaționalist, sursă obscură, zvon = mic).
+- viralScore: potențialul de distribuire pe rețele (emoție, controversă, factor de surpriză, relatabilitate).
+- seoScore: potențialul de trafic organic (volum de căutare al subiectului, cât timp rămâne relevant, cât de mult caută oamenii activ).
+- fakeNewsRisk: 0 = perfect verificabil și credibil, 100 = probabil fals/dezinformare/clickbait înșelător. Fii atent la titluri prea bune ca să fie adevărate și la surse dubioase.
+
+Și clasifică:
+- categorie: cea mai potrivită categorie PulsNow24.
+- countryCode: codul ISO 3166-1 alpha-2 al țării de care ține știrea (ex: RO, US, FR, DE, GB, UA, RU). Folosește "EU" pentru Uniunea Europeană în ansamblu și "XX" pentru știri globale, fără o țară anume.
+- priority: "breaking" DOAR pentru știri majore de ultimă oră care schimbă ziua; "high" pentru știri importante; "normal" pentru relevante obișnuite; "low" pentru minore. Fii zgârcit cu "breaking".
+- readingTime: estimarea timpului de citire al articolului final, în minute întregi (de obicei 2-5).
+- isDuplicate: true dacă știrea relatează același eveniment ca o altă știre DE MAI DEVREME în listă (păstrează false pentru prima apariție, true pentru dubluri).
+- keep: false dacă e irelevantă pentru un site de știri generale (horoscop, rețete, publicitate, update pur tehnic), altfel true.
+- reason: o singură frază scurtă în română care justifică evaluarea.
+
+Fii calibrat și onest — nu umfla scorurile. Distribuie-le pe tot intervalul.`;
 
 export interface RawNewsItem {
   titlu: string;
@@ -285,6 +330,26 @@ export interface RawNewsItem {
   publicatLa: string;
 }
 
+interface RawScore {
+  index: number;
+  importanceScore: number;
+  trustScore: number;
+  viralScore: number;
+  seoScore: number;
+  fakeNewsRisk: number;
+  categorie: string;
+  countryCode: string;
+  priority: InboxScoredItem["priority"];
+  readingTime: number;
+  isDuplicate: boolean;
+  keep: boolean;
+  reason: string;
+}
+
+function clamp(n: number): number {
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 export async function scoreNewsItems(
   items: RawNewsItem[]
 ): Promise<InboxScoredItem[]> {
@@ -292,20 +357,14 @@ export async function scoreNewsItems(
   const listing = items
     .map(
       (item, i) =>
-        `${i}. [${item.sursa}] ${item.titlu}${item.descriere ? ` — ${item.descriere.slice(0, 200)}` : ""}`
+        `${i}. [${item.sursa}] ${item.titlu}${item.descriere ? ` — ${item.descriere.slice(0, 220)}` : ""}`
     )
     .join("\n");
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 8000,
-    system: `Ești editorul de gardă la PulsNow24, site românesc de știri (business, AI & tech, politică, geopolitică, actualitate, plus monden și viral). Evaluezi știrile din fluxurile RSS.
-
-Pentru fiecare știre dai:
-- scor: importanța pentru publicul român, 0-100 (impact larg, urgență, interes de căutare).
-- categorie: cea mai potrivită categorie PulsNow24.
-- retine: false dacă e irelevantă pentru un site de știri generale (horoscop, rețete, promo), e doar un update minor sau e dublura altei știri din listă (păstreaz-o doar pe cea mai completă).
-- motiv: o frază scurtă cu justificarea scorului.`,
+    max_tokens: 16000,
+    system: SCORING_SYSTEM,
     output_config: {
       format: { type: "json_schema", schema: SCORING_SCHEMA },
     },
@@ -314,23 +373,89 @@ Pentru fiecare știre dai:
     ],
   });
 
-  const parsed = JSON.parse(textOf(response)) as {
-    items: {
-      index: number;
-      scor: number;
-      categorie: string;
-      retine: boolean;
-      motiv: string;
-    }[];
-  };
+  const parsed = JSON.parse(textOf(response)) as { items: RawScore[] };
 
   return parsed.items
     .filter((s) => items[s.index])
     .map((s) => ({
       ...items[s.index],
-      scor: s.scor,
+      importanceScore: clamp(s.importanceScore),
+      trustScore: clamp(s.trustScore),
+      viralScore: clamp(s.viralScore),
+      seoScore: clamp(s.seoScore),
+      fakeNewsRisk: clamp(s.fakeNewsRisk),
       categorie: s.categorie,
-      retine: s.retine,
-      motiv: s.motiv,
+      countryCode: (s.countryCode || "XX").toUpperCase().slice(0, 2),
+      priority: s.priority,
+      readingTime: Math.max(1, Math.round(s.readingTime || 2)),
+      isDuplicate: !!s.isDuplicate,
+      keep: !!s.keep,
+      reason: s.reason,
     }));
+}
+
+const FACTCHECK_SCHEMA = {
+  type: "object",
+  properties: {
+    verdict: {
+      type: "string",
+      enum: ["credibil", "partial", "indoielnic", "neverificabil"],
+    },
+    confidence: { type: "integer" },
+    summary: { type: "string" },
+    redFlags: { type: "array", items: { type: "string" } },
+    claims: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          claim: { type: "string" },
+          assessment: { type: "string" },
+        },
+        required: ["claim", "assessment"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["verdict", "confidence", "summary", "redFlags", "claims"],
+  additionalProperties: false,
+};
+
+export async function factCheckItem(input: {
+  url?: string;
+  title: string;
+  description?: string;
+}): Promise<import("@/lib/ai-types").FactCheckResult> {
+  const client = getClient();
+  let context = `Titlu: ${input.title}`;
+  if (input.description) context += `\nDescriere: ${input.description}`;
+  if (input.url) {
+    try {
+      const page = await fetchPage(input.url);
+      context += `\n\nConținutul paginii-sursă:\n${page.text.slice(0, 12000)}`;
+    } catch {
+      context += `\n\n(Nu am putut descărca pagina-sursă — evaluează pe baza titlului.)`;
+    }
+  }
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4000,
+    thinking: { type: "adaptive" },
+    system: `Ești verificator de fapte la PulsNow24. Analizezi o știre și evaluezi credibilitatea ei pe baza cunoștințelor tale și a textului sursă furnizat. Răspunzi în română.
+
+- verdict: "credibil" (bine susținut, plauzibil), "partial" (unele afirmații corecte, altele exagerate/nesusținute), "indoielnic" (semne clare de dezinformare sau clickbait înșelător), "neverificabil" (nu există destule informații pentru a evalua).
+- confidence: 0-100, cât de sigur ești de verdict.
+- summary: 1-2 fraze cu concluzia.
+- redFlags: semnale de alarmă concrete (senzaționalism, sursă unică, lipsă de date, contradicții). Listă goală dacă nu există.
+- claims: 2-4 afirmații-cheie din știre, fiecare cu o evaluare scurtă.
+
+Fii echilibrat și prudent — nu declara ceva fals fără temei, dar semnalează clar riscurile.`,
+    output_config: {
+      format: { type: "json_schema", schema: FACTCHECK_SCHEMA },
+    },
+    messages: [{ role: "user", content: `Verifică această știre:\n\n${context}` }],
+  });
+
+  return JSON.parse(textOf(response)) as import("@/lib/ai-types").FactCheckResult;
 }

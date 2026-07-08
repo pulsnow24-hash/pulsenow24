@@ -20,8 +20,17 @@ function asArray<T>(value: T | T[] | undefined): T[] {
 function stripHtml(s: string): string {
   return s
     .replace(/<[^>]+>/g, " ")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) =>
+      String.fromCodePoint(parseInt(h, 16))
+    )
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&hellip;/gi, "…")
+    .replace(/&(l|r)dquo;/gi, '"')
+    .replace(/&(l|r)squo;/gi, "'")
+    .replace(/&(m|n)dash;/gi, "—")
     .replace(/\s+/g, " ")
     .trim();
 }
