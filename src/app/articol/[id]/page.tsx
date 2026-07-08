@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getArticleById, getArticles } from "@/lib/articles";
+import { getArticleById } from "@/lib/articles";
 import { badgeClass, iconColor } from "@/components/ArticleCards";
 import { PulsIcon } from "@/components/BrandLogo";
 import ShareRow from "@/components/ShareRow";
@@ -10,14 +10,9 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-// Articolele noi din Firestore se randează la cerere și se
-// reîmprospătează cel mult o dată pe minut
-export const revalidate = 60;
-
-export async function generateStaticParams() {
-  const articole = await getArticles();
-  return articole.map((a) => ({ id: a.id }));
-}
+// Randare la fiecare cerere: articolele noi și editările din Firestore
+// apar imediat, fără cache și fără redeploy.
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;

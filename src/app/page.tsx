@@ -1,9 +1,9 @@
 import { getArticles, pickLead } from "@/lib/articles";
 import { ArticleCard, LeadStory, SideStory } from "@/components/ArticleCards";
 
-// Pagina se regenerează cel mult o dată pe minut — articolele noi
-// din Firestore apar fără redeploy
-export const revalidate = 60;
+// Randare la fiecare cerere: articolele noi din Firestore apar imediat
+// pe site, fără întârziere de cache și fără redeploy.
+export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const articole = await getArticles();
