@@ -1,117 +1,90 @@
 import { NextResponse } from "next/server";
-import { XMLParser } from "fast-xml-parser";
 import { isAuthorized } from "@/lib/server/auth";
 import { scoreNewsItems, type RawNewsItem } from "@/lib/server/ai";
+import { fetchFeed } from "@/lib/server/rss";
+import type { SourceSyncResult } from "@/lib/engine/sources";
 
-const FEEDS = [
-  { nume: "Digi24", url: "https://www.digi24.ro/rss" },
-  { nume: "HotNews", url: "https://hotnews.ro/feed" },
-  { nume: "G4Media", url: "https://www.g4media.ro/feed" },
-  { nume: "Biziday", url: "https://www.biziday.ro/feed/" },
+/** Sursele trimise de client (din Firestore); fallback la cele implicite. */
+interface SourceInput {
+  id: string;
+  name: string;
+  url: string;
+}
+
+const FALLBACK: SourceInput[] = [
+  { id: "digi24", name: "Digi24", url: "https://www.digi24.ro/rss" },
+  { id: "hotnews", name: "HotNews", url: "https://hotnews.ro/feed" },
+  { id: "g4media", name: "G4Media", url: "https://www.g4media.ro/feed" },
+  { id: "biziday", name: "Biziday", url: "https://www.biziday.ro/feed/" },
 ];
 
 const MAX_PER_FEED = 8;
-
-function asArray<T>(value: T | T[] | undefined): T[] {
-  if (value === undefined) return [];
-  return Array.isArray(value) ? value : [value];
-}
-
-function stripHtml(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) =>
-      String.fromCodePoint(parseInt(h, 16))
-    )
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&hellip;/gi, "…")
-    .replace(/&(l|r)dquo;/gi, '"')
-    .replace(/&(l|r)squo;/gi, "'")
-    .replace(/&(m|n)dash;/gi, "—")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-interface RssItem {
-  title?: string | { "#text"?: string };
-  link?: string | { "@_href"?: string };
-  description?: string;
-  pubDate?: string;
-  published?: string;
-}
-
-function itemText(v: RssItem["title"]): string {
-  if (typeof v === "string") return v;
-  if (v && typeof v === "object" && "#text" in v) return v["#text"] ?? "";
-  return "";
-}
-
-async function fetchFeed(feed: { nume: string; url: string }): Promise<RawNewsItem[]> {
-  const res = await fetch(feed.url, {
-    headers: { "User-Agent": "PulsNow24 RSS Reader" },
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) throw new Error(`${feed.nume}: HTTP ${res.status}`);
-  const xml = await res.text();
-  const parser = new XMLParser({ ignoreAttributes: false });
-  const parsed = parser.parse(xml);
-  const items = asArray<RssItem>(
-    parsed.rss?.channel?.item ?? parsed.feed?.entry
-  );
-
-  return items.slice(0, MAX_PER_FEED).flatMap((item) => {
-    const titlu = stripHtml(itemText(item.title));
-    const link =
-      typeof item.link === "string"
-        ? item.link
-        : (item.link?.["@_href"] ?? "");
-    if (!titlu || !link) return [];
-    const pubDate = item.pubDate ?? item.published ?? "";
-    const parsedDate = pubDate ? new Date(pubDate) : null;
-    return [
-      {
-        titlu,
-        link: link.trim(),
-        sursa: feed.nume,
-        descriere: stripHtml(item.description ?? "").slice(0, 300),
-        publicatLa:
-          parsedDate && !isNaN(parsedDate.getTime())
-            ? parsedDate.toISOString()
-            : new Date().toISOString(),
-      },
-    ];
-  });
-}
 
 export async function POST(request: Request) {
   if (!(await isAuthorized(request))) {
     return NextResponse.json({ error: "Neautorizat" }, { status: 401 });
   }
 
-  const results = await Promise.allSettled(FEEDS.map(fetchFeed));
-  const rawItems = results.flatMap((r) =>
-    r.status === "fulfilled" ? r.value : []
+  let sources: SourceInput[] = FALLBACK;
+  try {
+    const body = (await request.json()) as { sources?: SourceInput[] };
+    if (Array.isArray(body.sources) && body.sources.length) {
+      sources = body.sources.filter((s) => s.url && s.name);
+    }
+  } catch {
+    /* fără corp — folosim fallback */
+  }
+
+  // Descărcăm toate feed-urile în paralel, cu diagnostic per sursă
+  const fetched = await Promise.all(
+    sources.map(async (source) => {
+      const res = await fetchFeed(source.url, MAX_PER_FEED);
+      return { source, res };
+    })
   );
-  const feedErrors = results.flatMap((r) =>
-    r.status === "rejected" ? [String(r.reason?.message ?? r.reason)] : []
-  );
+
+  const rawItems: RawNewsItem[] = [];
+  const perSource: SourceSyncResult[] = [];
+  const feedErrors: string[] = [];
+
+  for (const { source, res } of fetched) {
+    perSource.push({
+      id: source.id,
+      itemCount: res.items.length,
+      responseTime: res.responseTime,
+      language: res.language,
+      error: res.error,
+    });
+    if (res.error) {
+      feedErrors.push(`${source.name}: ${res.error}`);
+      continue;
+    }
+    for (const item of res.items) {
+      rawItems.push({ ...item, sursa: source.name });
+    }
+  }
 
   if (rawItems.length === 0) {
     return NextResponse.json(
-      { error: `Niciun flux RSS nu a răspuns. ${feedErrors.join("; ")}` },
-      { status: 502 }
+      {
+        items: [],
+        perSource,
+        feedErrors,
+        error:
+          feedErrors.length > 0
+            ? `Niciun articol adus. ${feedErrors.slice(0, 3).join("; ")}`
+            : "Niciun articol în feed-uri.",
+      },
+      { status: feedErrors.length ? 502 : 200 }
     );
   }
 
   try {
     const items = await scoreNewsItems(rawItems);
-    return NextResponse.json({ items, feedErrors });
+    return NextResponse.json({ items, perSource, feedErrors });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Eroare necunoscută";
     const status = message.includes("ANTHROPIC_API_KEY") ? 503 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message, perSource, feedErrors }, { status });
   }
 }

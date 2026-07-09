@@ -1,22 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  collection,
-  doc,
-  getDocs,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore/lite";
+import { collection, doc, getDocs, updateDoc } from "firebase/firestore/lite";
 import { toast } from "sonner";
 import { Inbox as InboxIcon, Sparkles } from "lucide-react";
-import type {
-  FactCheckResult,
-  GeneratedArticle,
-  InboxScoredItem,
-} from "@/lib/ai-types";
+import type { FactCheckResult, GeneratedArticle } from "@/lib/ai-types";
 import { useNewsroom } from "@/components/admin/newsroom-provider";
-import { callApi, hashLink } from "@/app/admin/api";
+import { callApi } from "@/app/admin/api";
+import { runImport } from "@/components/admin/automation/import-runner";
 import { generatedToForm } from "@/app/admin/formState";
 import AiProgress from "@/app/admin/AiProgress";
 import { Button } from "@/components/ui/button";
@@ -216,34 +207,19 @@ export default function InboxView() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const { items: scored, feedErrors } = await callApi<{
-        items: InboxScoredItem[];
-        feedErrors: string[];
-      }>(auth, "/api/inbox/refresh", {});
-      const existing = new Set((items ?? []).map((i) => i.id));
-      let added = 0;
-      for (const it of scored) {
-        if (!it.keep) continue;
-        const id = hashLink(it.link);
-        if (existing.has(id)) continue;
-        await setDoc(doc(db, "inbox", id), {
-          ...it,
-          status: "new",
-          addedAt: new Date().toISOString(),
-        });
-        added++;
-      }
+      const summary = await runImport({ db, auth, trigger: "manual" });
       await load();
       toast.success(
-        `${added} știri noi în inbox` +
-          (feedErrors.length ? ` · ${feedErrors.length} fluxuri indisponibile` : "")
+        `${summary.added} știri noi în inbox` +
+          (summary.autoApproved ? ` · ${summary.autoApproved} aprobate automat` : "") +
+          (summary.errors.length ? ` · ${summary.errors.length} feed-uri cu probleme` : "")
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setRefreshing(false);
     }
-  }, [auth, db, items, load]);
+  }, [auth, db, load]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────
   useEffect(() => {

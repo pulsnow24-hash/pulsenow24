@@ -1,13 +1,5 @@
-import { Workflow } from "lucide-react";
-import SectionPlaceholder from "@/components/admin/section-placeholder";
+import AutomationView from "@/components/admin/automation/automation-view";
 
 export default function AutomationPage() {
-  return (
-    <SectionPlaceholder
-      icon={Workflow}
-      title="RSS & Automatizare"
-      description="Gestionarea surselor RSS, reguli de scor și ingestie automată programată a știrilor."
-      phase="Faza 8"
-    />
-  );
+  return <AutomationView />;
 }
