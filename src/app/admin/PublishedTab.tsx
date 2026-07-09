@@ -52,7 +52,12 @@ export default function PublishedTab() {
   async function comutaStatus(a: Article) {
     const nou = a.status === "draft" ? "publicat" : "draft";
     const { id, ...campuri } = a;
-    await setDoc(doc(db, "articles", id), { ...campuri, status: nou });
+    // Ținem workflow-ul din Studio sincron cu starea publică
+    await setDoc(doc(db, "articles", id), {
+      ...campuri,
+      status: nou,
+      workflow: nou === "publicat" ? "published" : "draft",
+    });
     await incarca();
     arataStatus(nou === "publicat" ? `✓ Publicat: ${a.id}` : `Retras în draft: ${a.id}`);
   }

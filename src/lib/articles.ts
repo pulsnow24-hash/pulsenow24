@@ -50,6 +50,8 @@ export interface Article {
   data: string;
   citire: string;
   fapt: string;
+  /** De ce contează — impactul concret asupra cititorului */
+  deCeConteaza?: string;
   unghi: string;
   opinie: string;
   predictie: string;
@@ -57,6 +59,10 @@ export interface Article {
   dezbatere: string;
   /** "draft" = vizibil doar în admin; lipsă sau "publicat" = live pe site */
   status?: "draft" | "publicat";
+  /** Starea editorială detaliată (draft/review/factchecked/ready/scheduled/published) */
+  workflow?: string;
+  /** Ordinea blocurilor de conținut pe pagina publică */
+  blockOrder?: string[];
   seo?: ArticleSEO;
   sursa?: ArticleSource;
   taguri?: string[];
@@ -72,6 +78,13 @@ async function loadDemo() {
   return { articole: DEMO_ARTICOLE, ticker: DEMO_TICKER };
 }
 
+/** True dacă articolul e programat în viitor (comparație pe timestamp). */
+function isFuture(publicatLa: string | undefined): boolean {
+  if (!publicatLa) return false;
+  const t = new Date(publicatLa).getTime();
+  return !isNaN(t) && t > Date.now();
+}
+
 export async function getArticles(): Promise<Article[]> {
   const db = getDb();
   if (!db) return (await loadDemo()).articole;
@@ -80,7 +93,10 @@ export async function getArticles(): Promise<Article[]> {
     if (snap.empty) return (await loadDemo()).articole;
     const articole = snap.docs
       .map((d) => ({ ...d.data(), id: d.id }) as Article)
-      .filter((a) => a.status !== "draft");
+      // Drafturile și articolele programate în viitor nu apar pe site;
+      // cele programate devin vizibile automat la ora setată (randare per cerere).
+      // Comparăm timestamp-uri, nu string-uri — publicatLa poate avea offset (+03:00) sau Z.
+      .filter((a) => a.status !== "draft" && !isFuture(a.publicatLa));
     // Cele mai noi primele
     articole.sort((a, b) => (b.publicatLa ?? "").localeCompare(a.publicatLa ?? ""));
     return articole;
@@ -96,7 +112,10 @@ export async function getArticleById(id: string): Promise<Article | undefined> {
   try {
     const snap = await getDoc(doc(db, "articles", id));
     if (!snap.exists()) return undefined;
-    return { ...snap.data(), id: snap.id } as Article;
+    const articol = { ...snap.data(), id: snap.id } as Article;
+    // Articolele programate în viitor nu sunt accesibile până la ora setată
+    if (isFuture(articol.publicatLa)) return undefined;
+    return articol;
   } catch (err) {
     console.warn("Firestore indisponibil, folosesc articolele demo:", err);
     return (await loadDemo()).articole.find((a) => a.id === id);

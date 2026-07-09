@@ -116,6 +116,7 @@ const ARTICLE_SCHEMA = {
     categorie: { type: "string", enum: CATEGORII },
     breaking: { type: "boolean" },
     fapt: { type: "string" },
+    deCeConteaza: { type: "string" },
     unghi: { type: "string" },
     opinie: { type: "string" },
     predictie: { type: "string" },
@@ -135,6 +136,7 @@ const ARTICLE_SCHEMA = {
     "categorie",
     "breaking",
     "fapt",
+    "deCeConteaza",
     "unghi",
     "opinie",
     "predictie",
@@ -154,7 +156,8 @@ const ARTICLE_SCHEMA = {
 const REDACTOR_SYSTEM = `Ești redactor senior la PulsNow24, un site românesc de știri cu sloganul "Pulsul zilei, pe scurt". Scrii exclusiv în limba română, clar și fără clișee.
 
 Formatul editorial PulsNow24 pentru fiecare articol:
-- FAPT VERIFICAT: doar faptele confirmate din sursă, fără interpretare (2-4 fraze).
+- FAPT VERIFICAT (fapt): doar faptele confirmate din sursă, fără interpretare (2-4 fraze).
+- DE CE CONTEAZĂ (deCeConteaza): impactul concret asupra cititorului român — miză, consecințe practice (2-3 fraze).
 - UNGHIUL ASCUNS: ce nu spune sursa direct — contextul, interesele, implicațiile (2-3 fraze).
 - OPINIA PULSNOW24: o poziție editorială echilibrată dar cu personalitate, începe cu "Părerea PulsNow24:" (2-3 fraze).
 - PREDICȚIA: ce anticipăm că urmează, formulat prudent ("Estimăm...", "Anticipăm...") (1-2 fraze).

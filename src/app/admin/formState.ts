@@ -4,6 +4,11 @@
  */
 import type { Article, ArticleBadge, ArticleSocial, QAPair } from "@/lib/articles";
 import type { GeneratedArticle } from "@/lib/ai-types";
+import {
+  DEFAULT_BLOCK_ORDER,
+  workflowMeta,
+  type WorkflowState,
+} from "@/lib/engine/publication";
 
 export const CATEGORII = [
   "Actualitate",
@@ -24,11 +29,14 @@ export interface FormState {
   breaking: boolean;
   citire: string;
   fapt: string;
+  deCeConteaza: string;
   unghi: string;
   opinie: string;
   predictie: string;
   dezbatere: string;
   qa: QAPair[];
+  /** Ordinea blocurilor de conținut (drag & drop în Studio) */
+  blockOrder: string[];
   taguri: string; // separate prin virgulă
   seoTitle: string;
   metaDescription: string;
@@ -50,11 +58,13 @@ export const FORM_GOL: FormState = {
   breaking: false,
   citire: "",
   fapt: "",
+  deCeConteaza: "",
   unghi: "",
   opinie: "",
   predictie: "",
   dezbatere: "",
   qa: [{ q: "", a: "" }],
+  blockOrder: DEFAULT_BLOCK_ORDER,
   taguri: "",
   seoTitle: "",
   metaDescription: "",
@@ -109,11 +119,13 @@ export function articleToForm(a: Article): FormState {
     breaking: a.badge === "breaking",
     citire: a.citire,
     fapt: a.fapt,
+    deCeConteaza: a.deCeConteaza ?? "",
     unghi: a.unghi,
     opinie: a.opinie,
     predictie: a.predictie,
     dezbatere: a.dezbatere,
     qa: a.qa.length ? a.qa : [{ q: "", a: "" }],
+    blockOrder: a.blockOrder?.length ? a.blockOrder : DEFAULT_BLOCK_ORDER,
     taguri: (a.taguri ?? []).join(", "),
     seoTitle: a.seo?.title ?? "",
     metaDescription: a.seo?.metaDescription ?? "",
@@ -136,6 +148,7 @@ export function generatedToForm(g: GeneratedArticle, sourceUrl: string): FormSta
     categorie: CATEGORII.includes(g.categorie) ? g.categorie : "Actualitate",
     breaking: g.breaking,
     fapt: g.fapt,
+    deCeConteaza: g.deCeConteaza ?? "",
     unghi: g.unghi,
     opinie: g.opinie,
     predictie: g.predictie,
@@ -158,11 +171,16 @@ export function generatedToForm(g: GeneratedArticle, sourceUrl: string): FormSta
 /**
  * Construiește documentul Firestore. Firestore respinge valorile undefined,
  * așa că obiectele opționale se adaugă doar dacă au conținut.
+ *
+ * Starea publică (status) derivă din workflow: published/scheduled = live,
+ * restul = draft. Pentru scheduled, publicatLa = ora programată — site-ul
+ * (randat per cerere) îl afișează automat când ora trece.
  */
 export function formToArticle(
   form: FormState,
   opts: {
-    status: "draft" | "publicat";
+    workflow: WorkflowState;
+    scheduledFor?: string;
     existent?: Article;
     social?: ArticleSocial | null;
   }
@@ -170,10 +188,22 @@ export function formToArticle(
   const buzz = CATEGORII_BUZZ.has(form.categorie);
   const badge: ArticleBadge = form.breaking ? "breaking" : buzz ? "buzz" : "blue";
   const acum = new Date();
+  const live = workflowMeta(opts.workflow).live;
+
+  let publicatLa = opts.existent?.publicatLa ?? acum.toISOString();
+  let data = opts.existent?.data ?? dataAfisata(acum);
+  if (opts.workflow === "scheduled" && opts.scheduledFor) {
+    publicatLa = new Date(opts.scheduledFor).toISOString();
+    data = dataAfisata(new Date(opts.scheduledFor));
+  } else if (opts.workflow === "published" && opts.existent?.status !== "publicat") {
+    // Prima publicare: momentul de acum devine data articolului
+    publicatLa = acum.toISOString();
+    data = dataAfisata(acum);
+  }
 
   const articol: Omit<Article, "id"> = {
-    publicatLa: opts.existent?.publicatLa ?? acum.toISOString(),
-    data: opts.existent?.data ?? dataAfisata(acum),
+    publicatLa,
+    data,
     categorie: form.categorie,
     badge,
     buzz,
@@ -181,15 +211,25 @@ export function formToArticle(
     sumar: form.sumar,
     citire:
       form.citire ||
-      estimateCitire(form.fapt, form.unghi, form.opinie, form.predictie),
+      estimateCitire(
+        form.fapt,
+        form.deCeConteaza,
+        form.unghi,
+        form.opinie,
+        form.predictie
+      ),
     fapt: form.fapt,
     unghi: form.unghi,
     opinie: form.opinie,
     predictie: form.predictie,
     dezbatere: form.dezbatere,
     qa: form.qa.filter((p) => p.q.trim() && p.a.trim()),
-    status: opts.status,
+    status: live ? "publicat" : "draft",
+    workflow: opts.workflow,
   };
+
+  if (form.deCeConteaza.trim()) articol.deCeConteaza = form.deCeConteaza.trim();
+  if (form.blockOrder.length) articol.blockOrder = form.blockOrder;
 
   const taguri = splitList(form.taguri);
   if (taguri.length) articol.taguri = taguri;

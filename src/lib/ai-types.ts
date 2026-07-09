@@ -11,6 +11,7 @@ export interface GeneratedArticle {
   categorie: string;
   breaking: boolean;
   fapt: string;
+  deCeConteaza: string;
   unghi: string;
   opinie: string;
   predictie: string;
@@ -77,3 +78,35 @@ export interface FactCheckResult {
   redFlags: string[];
   claims: { claim: string; assessment: string }[];
 }
+
+/* ── AI Copilot (Studio) ──────────────────────────────────── */
+
+/** Contextul articolului trimis copilotului — doar text, fără metadate interne. */
+export interface CopilotArticleContext {
+  titlu: string;
+  sumar: string;
+  fapt: string;
+  deCeConteaza: string;
+  unghi: string;
+  opinie: string;
+  predictie: string;
+  dezbatere: string;
+  categorie: string;
+  taguri: string;
+  keywords: string;
+  sursaNume: string;
+  sursaUrl: string;
+}
+
+export interface CopilotRequest {
+  action: string;
+  article: CopilotArticleContext;
+  /** Blocul-țintă pentru acțiunile aplicate pe un singur câmp */
+  target?: { field: string; label: string; text: string; hint?: string };
+}
+
+export type CopilotResult =
+  | { kind: "text"; text: string }
+  | { kind: "options"; options: string[] }
+  | { kind: "list"; items: string[] }
+  | { kind: "qa"; qa: QAPair[] };

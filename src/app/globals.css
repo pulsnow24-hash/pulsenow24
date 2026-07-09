@@ -185,6 +185,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
 .format-block .fb-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; display: block; }
 .fb-fact { border-left-color: var(--pulse-1); }
 .fb-fact .fb-label { color: var(--pulse-2); }
+.fb-why { border-left-color: var(--pulse-2); }
+.fb-why .fb-label { color: var(--pulse-2); }
 .fb-angle { border-left-color: var(--gold); }
 .fb-angle .fb-label { color: var(--gold); }
 .fb-opinion { border-left-color: var(--buzz); }
