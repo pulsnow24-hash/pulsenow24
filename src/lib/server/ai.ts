@@ -9,9 +9,12 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type {
+  AssignableItem,
   GeneratedArticle,
   InboxScoredItem,
   SocialPosts,
+  StoryAssignmentResult,
+  StoryCandidate,
 } from "@/lib/ai-types";
 
 const MODEL = "claude-opus-4-8";
@@ -473,4 +476,105 @@ Fii echilibrat și prudent — nu declara ceva fals fără temei, dar semnaleaz�
   });
 
   return JSON.parse(textOf(response)) as import("@/lib/ai-types").FactCheckResult;
+}
+
+/* ── Story Engine: asignarea semnalelor la povești ────────── */
+
+const ASSIGN_SCHEMA = {
+  type: "object",
+  properties: {
+    assignments: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          index: { type: "integer" },
+          storyRef: { type: "string" },
+        },
+        required: ["index", "storyRef"],
+        additionalProperties: false,
+      },
+    },
+    newStories: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          ref: { type: "string" },
+          title: { type: "string" },
+          summary: { type: "string" },
+          entities: { type: "array", items: { type: "string" } },
+          people: { type: "array", items: { type: "string" } },
+          locations: { type: "array", items: { type: "string" } },
+          organizations: { type: "array", items: { type: "string" } },
+        },
+        required: [
+          "ref",
+          "title",
+          "summary",
+          "entities",
+          "people",
+          "locations",
+          "organizations",
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["assignments", "newStories"],
+  additionalProperties: false,
+};
+
+/**
+ * Grupează semnalele noi pe evenimente: fiecare item primește fie id-ul unui
+ * story existent, fie o referință "NEW::n" către un story nou propus.
+ */
+export async function assignStoriesToItems(
+  items: AssignableItem[],
+  candidates: StoryCandidate[]
+): Promise<StoryAssignmentResult> {
+  const client = getClient();
+
+  const candidateList = candidates.length
+    ? candidates
+        .map(
+          (c) =>
+            `- id: ${c.id}\n  titlu: ${c.title}\n  rezumat: ${c.summary.slice(0, 200)}\n  entități: ${c.entities.slice(0, 8).join(", ")}`
+        )
+        .join("\n")
+    : "(niciun story activ)";
+
+  const itemList = items
+    .map(
+      (item, i) =>
+        `${i}. [${item.sursa} · ${item.categorie} · ${item.countryCode}] ${item.titlu}${item.descriere ? ` — ${item.descriere.slice(0, 180)}` : ""}`
+    )
+    .join("\n");
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 8000,
+    system: `Ești motorul de corelare al unei redacții de știri. Grupezi relatările pe EVENIMENTE reale (Story-uri): mai multe surse care descriu același eveniment aparțin aceluiași Story.
+
+Reguli:
+- Două relatări aparțin aceluiași Story DOAR dacă descriu același eveniment concret (aceiași actori + aceeași acțiune + același interval), nu doar aceeași temă generală.
+- Dacă un item se potrivește cu un story existent din listă, folosește EXACT id-ul lui ca storyRef.
+- Dacă nu se potrivește cu nimic, creează un story nou: storyRef = "NEW::1", "NEW::2"… și definește-l în newStories (același ref).
+- Itemele care descriu același eveniment nou primesc ACELAȘI ref NEW.
+- title (story): numele evenimentului, neutru și concret, max 80 caractere, în română.
+- summary: 1-2 fraze factuale despre eveniment.
+- entities: 3-6 teme/concepte; people: persoane numite; locations: locuri; organizations: instituții/companii — doar cele care apar în iteme, în română, fără duplicate. Liste goale dacă nu există.
+- Fiecare index din listă trebuie să apară exact o dată în assignments.`,
+    output_config: {
+      format: { type: "json_schema", schema: ASSIGN_SCHEMA },
+    },
+    messages: [
+      {
+        role: "user",
+        content: `STORY-URI ACTIVE:\n${candidateList}\n\nITEME NOI DE ASIGNAT:\n${itemList}`,
+      },
+    ],
+  });
+
+  return JSON.parse(textOf(response)) as StoryAssignmentResult;
 }

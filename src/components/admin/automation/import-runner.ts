@@ -17,7 +17,14 @@ import {
 import type { Firestore } from "firebase/firestore/lite";
 import type { Auth } from "firebase/auth";
 import { callApi, hashLink } from "@/app/admin/api";
-import type { InboxScoredItem } from "@/lib/ai-types";
+import type { InboxScoredItem, StoryAssignmentResult } from "@/lib/ai-types";
+import type { Story } from "@/lib/engine/story";
+import {
+  applySignalInMemory,
+  createAndSaveStory,
+  getActiveStories,
+  saveStory,
+} from "@/lib/story-store";
 import {
   DEFAULT_AUTOMATION,
   DEFAULT_SOURCES,
@@ -104,14 +111,76 @@ export async function runImport(opts: {
   const existing = new Set(existingSnap.docs.map((d) => d.id));
 
   const rule = config.rules.autoApprove;
+  const fresh = items.filter(
+    (item) => item.keep && !existing.has(hashLink(item.link))
+  );
+
+  // ── Story Engine: fiecare semnal nou aparține unui Story ──
+  // Eșecul asignării nu blochează importul (itemele rămân fără storyId).
+  const storyIdByIndex = new Map<number, string>();
+  const storiesById = new Map<string, Story>();
+  if (fresh.length > 0) {
+    try {
+      const candidates = await getActiveStories(db);
+      for (const s of candidates) storiesById.set(s.id, s);
+      const result = await callApi<StoryAssignmentResult>(
+        auth,
+        "/api/stories/assign",
+        {
+          items: fresh.map((i) => ({
+            titlu: i.titlu,
+            descriere: i.descriere,
+            sursa: i.sursa,
+            categorie: i.categorie,
+            countryCode: i.countryCode,
+          })),
+          candidates: candidates.map((s) => ({
+            id: s.id,
+            title: s.title,
+            summary: s.summary,
+            entities: [...s.entities, ...s.people, ...s.organizations],
+          })),
+        }
+      );
+      // Creăm story-urile noi propuse de AI
+      const refToId = new Map<string, string>();
+      for (const def of result.newStories) {
+        // Categoria/țara story-ului: din primul item asignat acestui ref
+        const firstIdx = result.assignments.find(
+          (a) => a.storyRef === def.ref
+        )?.index;
+        const seed = firstIdx !== undefined ? fresh[firstIdx] : undefined;
+        const story = await createAndSaveStory(
+          db,
+          def,
+          seed?.categorie ?? "Actualitate",
+          seed?.countryCode ?? "RO"
+        );
+        refToId.set(def.ref, story.id);
+        storiesById.set(story.id, story);
+      }
+      for (const a of result.assignments) {
+        const storyId = a.storyRef.startsWith("NEW::")
+          ? refToId.get(a.storyRef)
+          : storiesById.has(a.storyRef)
+            ? a.storyRef
+            : undefined;
+        if (storyId) storyIdByIndex.set(a.index, storyId);
+      }
+    } catch (err) {
+      feedErrors.push(
+        `Story Engine: ${err instanceof Error ? err.message : "asignare eșuată"}`
+      );
+    }
+  }
+
   let added = 0;
   let autoApproved = 0;
 
-  for (const item of items) {
-    if (!item.keep) continue;
+  for (let i = 0; i < fresh.length; i++) {
+    const item = fresh[i];
     if (added >= config.maxPerRun) break; // rate limiting
     const id = hashLink(item.link);
-    if (existing.has(id)) continue;
 
     const source = byName.get(item.sursa);
     const approve =
@@ -120,15 +189,42 @@ export async function runImport(opts: {
       item.trustScore >= rule.minTrust &&
       (!rule.trustedOnly || !!source?.trusted);
 
+    const storyId = storyIdByIndex.get(i);
     await setDoc(doc(db, "inbox", id), {
       ...item,
+      ...(storyId ? { storyId } : {}),
       status: approve ? "approved" : "new",
       addedAt: new Date().toISOString(),
       autoImported: trigger === "auto",
     });
     added++;
     if (approve) autoApproved++;
+
+    // Actualizăm story-ul cu semnalul (scoruri, timeline, coroborare)
+    if (storyId) {
+      const story = storiesById.get(storyId);
+      if (story) {
+        storiesById.set(
+          storyId,
+          applySignalInMemory(story, {
+            refId: id,
+            titlu: item.titlu,
+            sursa: item.sursa,
+            publicatLa: item.publicatLa,
+            importanceScore: item.importanceScore,
+            trustScore: item.trustScore,
+            countryCode: item.countryCode,
+          })
+        );
+      }
+    }
   }
+
+  // Persistăm story-urile atinse (o singură scriere per story)
+  const touchedStories = [...storiesById.values()].filter((s) =>
+    [...storyIdByIndex.values()].includes(s.id)
+  );
+  await Promise.all(touchedStories.map((s) => saveStory(db, s)));
 
   // Actualizăm sănătatea fiecărei surse sincronizate
   const resultById = new Map(perSource.map((r) => [r.id, r]));

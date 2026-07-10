@@ -37,6 +37,8 @@ export interface FormState {
   qa: QAPair[];
   /** Ordinea blocurilor de conținut (drag & drop în Studio) */
   blockOrder: string[];
+  /** Story-ul căruia îi aparține articolul (gol = se creează la salvare) */
+  storyId: string;
   taguri: string; // separate prin virgulă
   seoTitle: string;
   metaDescription: string;
@@ -65,6 +67,7 @@ export const FORM_GOL: FormState = {
   dezbatere: "",
   qa: [{ q: "", a: "" }],
   blockOrder: DEFAULT_BLOCK_ORDER,
+  storyId: "",
   taguri: "",
   seoTitle: "",
   metaDescription: "",
@@ -126,6 +129,7 @@ export function articleToForm(a: Article): FormState {
     dezbatere: a.dezbatere,
     qa: a.qa.length ? a.qa : [{ q: "", a: "" }],
     blockOrder: a.blockOrder?.length ? a.blockOrder : DEFAULT_BLOCK_ORDER,
+    storyId: a.storyId ?? "",
     taguri: (a.taguri ?? []).join(", "),
     seoTitle: a.seo?.title ?? "",
     metaDescription: a.seo?.metaDescription ?? "",
@@ -230,6 +234,7 @@ export function formToArticle(
 
   if (form.deCeConteaza.trim()) articol.deCeConteaza = form.deCeConteaza.trim();
   if (form.blockOrder.length) articol.blockOrder = form.blockOrder;
+  if (form.storyId.trim()) articol.storyId = form.storyId.trim();
 
   const taguri = splitList(form.taguri);
   if (taguri.length) articol.taguri = taguri;

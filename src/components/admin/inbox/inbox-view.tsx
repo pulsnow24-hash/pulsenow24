@@ -146,6 +146,8 @@ export default function InboxView() {
         });
         const form = generatedToForm(g, item.link);
         if (!form.sursaNume) form.sursaNume = item.sursa;
+        // Articolul moștenește story-ul semnalului din care e generat
+        if (item.storyId) form.storyId = item.storyId;
         await updateDoc(doc(db, "inbox", item.id), { status: "drafted" });
         toast.dismiss(t);
         requestEdit({ form, editId: null, social: null });

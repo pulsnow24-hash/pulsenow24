@@ -61,6 +61,8 @@ export interface Article {
   status?: "draft" | "publicat";
   /** Starea editorială detaliată (draft/review/factchecked/ready/scheduled/published) */
   workflow?: string;
+  /** Story-ul (evenimentul) căruia îi aparține articolul */
+  storyId?: string;
   /** Ordinea blocurilor de conținut pe pagina publică */
   blockOrder?: string[];
   seo?: ArticleSEO;

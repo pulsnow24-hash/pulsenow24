@@ -28,7 +28,14 @@ import {
   workflowMeta,
   type WorkflowState,
 } from "@/lib/engine/publication";
+import type { Story } from "@/lib/engine/story";
+import {
+  ensureStoryForArticle,
+  getStory,
+  linkArticleToStory,
+} from "@/lib/story-store";
 import BlockCard from "./block-card";
+import StoryCard from "./story-card";
 import OutlinePanel, { type SaveState } from "./outline-panel";
 import CopilotPanel, { type CopilotApply } from "./copilot-panel";
 import SeoPanel from "./seo-panel";
@@ -60,6 +67,7 @@ export default function StudioView() {
 
   const [dragField, setDragField] = useState<string | null>(null);
   const [overField, setOverField] = useState<string | null>(null);
+  const [story, setStory] = useState<Story | null>(null);
 
   const savedRef = useRef<string>("");
 
@@ -93,6 +101,25 @@ export default function StudioView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ── Story context: încarcă story-ul articolului curent ─── */
+  useEffect(() => {
+    const storyId = form.storyId.trim();
+    if (!storyId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setStory(null);
+      return;
+    }
+    let cancelled = false;
+    getStory(db, storyId)
+      .then((s) => {
+        if (!cancelled) setStory(s);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [db, form.storyId]);
+
   /* ── Salvare ────────────────────────────────────────────── */
   const snapshot = JSON.stringify({ form, social, workflow, scheduledFor });
 
@@ -120,6 +147,36 @@ export default function StudioView() {
         setEditId(id);
         setExisting({ ...articol, id });
         if (!form.id) set("id", id);
+
+        // ── Story Engine: fiecare articol aparține unui Story ──
+        // Eșecul legăturii nu blochează salvarea articolului.
+        try {
+          if (form.storyId.trim()) {
+            const updated = await linkArticleToStory(db, form.storyId.trim(), {
+              id,
+              titlu: articol.titlu,
+              imagine: articol.imagine,
+            });
+            if (updated) setStory(updated);
+          } else {
+            const created = await ensureStoryForArticle(db, {
+              id,
+              titlu: articol.titlu,
+              sumar: articol.sumar,
+              categorie: articol.categorie,
+              taguri: articol.taguri,
+              imagine: articol.imagine,
+            });
+            set("storyId", created.id);
+            await setDoc(doc(db, "articles", id), {
+              ...articol,
+              storyId: created.id,
+            });
+            setStory(created);
+          }
+        } catch {
+          /* story indisponibil — articolul rămâne salvat */
+        }
         savedRef.current = snapshot;
         setLastSavedAt(new Date());
         setSaveState("saved");
@@ -421,6 +478,8 @@ export default function StudioView() {
           <MediaCard auth={auth} form={form} set={set} />
 
           <DetailsCard form={form} set={set} publishInfo={publishInfo} />
+
+          {story && <StoryCard story={story} currentArticleId={editId} />}
         </div>
       </div>
 

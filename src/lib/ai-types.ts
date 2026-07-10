@@ -110,3 +110,39 @@ export type CopilotResult =
   | { kind: "options"; options: string[] }
   | { kind: "list"; items: string[] }
   | { kind: "qa"; qa: QAPair[] };
+
+/* ── Story Engine: asignarea semnalelor la povești ────────── */
+
+/** Candidat de story existent, trimis modelului pentru potrivire. */
+export interface StoryCandidate {
+  id: string;
+  title: string;
+  summary: string;
+  entities: string[];
+}
+
+/** Item de asignat (subsetul relevant dintr-un InboxScoredItem). */
+export interface AssignableItem {
+  titlu: string;
+  descriere: string;
+  sursa: string;
+  categorie: string;
+  countryCode: string;
+}
+
+/** Definiția unui story nou, propusă de model. */
+export interface ProposedStory {
+  ref: string;
+  title: string;
+  summary: string;
+  entities: string[];
+  people: string[];
+  locations: string[];
+  organizations: string[];
+}
+
+export interface StoryAssignmentResult {
+  /** index → id de story existent SAU ref "NEW::n" */
+  assignments: { index: number; storyRef: string }[];
+  newStories: ProposedStory[];
+}

@@ -35,6 +35,8 @@ export interface InboxDoc extends InboxScoredItem {
   id: string;
   status: InboxStatus;
   addedAt: string;
+  /** Story-ul (evenimentul) căruia îi aparține semnalul */
+  storyId?: string;
 }
 
 /** Normalizează un document brut (inclusiv formatul vechi) la forma curentă. */
@@ -90,6 +92,7 @@ export function normalizeInboxDoc(
     reason: str(d.reason, str(d.motiv, "")),
     status,
     addedAt: str(d.addedAt, str(d.adaugatLa, new Date().toISOString())),
+    ...(typeof d.storyId === "string" && d.storyId ? { storyId: d.storyId } : {}),
   };
 }
 
