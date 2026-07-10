@@ -17,7 +17,11 @@ import {
 import type { Firestore } from "firebase/firestore/lite";
 import type { Auth } from "firebase/auth";
 import { callApi, hashLink } from "@/app/admin/api";
-import type { InboxScoredItem, StoryAssignmentResult } from "@/lib/ai-types";
+import type {
+  EntityExtractionResult,
+  InboxScoredItem,
+  StoryAssignmentResult,
+} from "@/lib/ai-types";
 import type { Story } from "@/lib/engine/story";
 import {
   applySignalInMemory,
@@ -25,6 +29,12 @@ import {
   getActiveStories,
   saveStory,
 } from "@/lib/story-store";
+import {
+  loadEntities,
+  resolveMentions,
+  saveEntity,
+  type SignalEntities,
+} from "@/lib/entity-store";
 import {
   DEFAULT_AUTOMATION,
   DEFAULT_SOURCES,
@@ -225,6 +235,33 @@ export async function runImport(opts: {
     [...storyIdByIndex.values()].includes(s.id)
   );
   await Promise.all(touchedStories.map((s) => saveStory(db, s)));
+
+  // ── Entity Intelligence: extragem și agregăm entitățile semnalelor ──
+  // Complet fail-safe: orice eroare aici NU blochează importul.
+  if (fresh.length > 0) {
+    try {
+      const extraction = await callApi<EntityExtractionResult>(
+        auth,
+        "/api/entities/extract",
+        {
+          items: fresh.map((i) => ({ titlu: i.titlu, descriere: i.descriere })),
+        }
+      );
+      const byIndex = new Map(extraction.items.map((x) => [x.index, x.entities]));
+      const signals: SignalEntities[] = fresh.map((item, i) => ({
+        storyId: storyIdByIndex.get(i),
+        importance: item.importanceScore,
+        entities: byIndex.get(i) ?? [],
+      }));
+      const existingEntities = await loadEntities(db);
+      const touched = resolveMentions(existingEntities, signals);
+      await Promise.all(touched.map((e) => saveEntity(db, e)));
+    } catch (err) {
+      feedErrors.push(
+        `Entity Engine: ${err instanceof Error ? err.message : "extracție eșuată"}`
+      );
+    }
+  }
 
   // Actualizăm sănătatea fiecărei surse sincronizate
   const resultById = new Map(perSource.map((r) => [r.id, r]));

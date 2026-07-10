@@ -128,6 +128,35 @@ await test("respinge timeline non-listă", () => assertFails(setDoc(doc(editor, 
 await test("respinge câmp străin", () => assertFails(setDoc(doc(editor, "stories", "bad6"), { ...validStory, hacked: true })));
 await test("acceptă coverImage opțional", () => assertSucceeds(setDoc(doc(editor, "stories", "ok1"), { ...validStory, coverImage: "https://x/1.jpg" })));
 
+const validEntity = {
+  name: "SUA",
+  type: "country",
+  aliases: ["statele unite", "united states", "usa"],
+  firstSeen: "2026-07-10T10:00:00Z",
+  lastSeen: "2026-07-10T10:00:00Z",
+  mentionCount: 1,
+  relatedStoryIds: ["story1"],
+  relatedArticleIds: [],
+  relatedEntityIds: [],
+  trendScore: 60,
+  importanceScore: 70,
+  dailyMentions: { "2026-07-10": 1 },
+};
+
+console.log("\nENTITIES:");
+await test("public citește entities", async () => {
+  await env.withSecurityRulesDisabled(async (ctx) =>
+    setDoc(doc(ctx.firestore(), "entities", "country-sua"), validEntity)
+  );
+  await assertSucceeds(getDocs(collection(anon, "entities")));
+});
+await test("public NU scrie entities", () => assertFails(setDoc(doc(anon, "entities", "hack"), validEntity)));
+await test("redacție creează entitate validă", () => assertSucceeds(setDoc(doc(editor, "entities", "country-sua2"), validEntity)));
+await test("redacție update parțial (relatedArticleIds)", () => assertSucceeds(setDoc(doc(editor, "entities", "country-sua"), { relatedArticleIds: ["art1"] }, { merge: true })));
+await test("respinge tip necunoscut", () => assertFails(setDoc(doc(editor, "entities", "bad1"), { ...validEntity, type: "alien" })));
+await test("respinge trendScore invalid", () => assertFails(setDoc(doc(editor, "entities", "bad2"), { ...validEntity, trendScore: "sus" })));
+await test("respinge dailyMentions non-map", () => assertFails(setDoc(doc(editor, "entities", "bad3"), { ...validEntity, dailyMentions: [1, 2] })));
+
 await env.cleanup();
 console.log(`\nREZULTAT: ${passed} trecute, ${failed} eșuate`);
 process.exit(failed ? 1 : 0);

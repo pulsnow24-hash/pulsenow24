@@ -34,6 +34,7 @@ import {
   getStory,
   linkArticleToStory,
 } from "@/lib/story-store";
+import { linkArticleToEntities } from "@/lib/entity-store";
 import BlockCard from "./block-card";
 import StoryCard from "./story-card";
 import OutlinePanel, { type SaveState } from "./outline-panel";
@@ -158,6 +159,8 @@ export default function StudioView() {
               imagine: articol.imagine,
             });
             if (updated) setStory(updated);
+            // Entitățile story-ului primesc și referința articolului (fail-safe)
+            linkArticleToEntities(db, form.storyId.trim(), id).catch(() => {});
           } else {
             const created = await ensureStoryForArticle(db, {
               id,

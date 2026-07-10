@@ -146,3 +146,15 @@ export interface StoryAssignmentResult {
   assignments: { index: number; storyRef: string }[];
   newStories: ProposedStory[];
 }
+
+/* ── Entity Intelligence: extracția entităților din semnale ── */
+
+export interface ExtractedEntityRaw {
+  name: string;
+  type: string;
+  aliases: string[];
+}
+
+export interface EntityExtractionResult {
+  items: { index: number; entities: ExtractedEntityRaw[] }[];
+}

@@ -578,3 +578,91 @@ Reguli:
 
   return JSON.parse(textOf(response)) as StoryAssignmentResult;
 }
+
+/* ── Entity Intelligence: extracția entităților ───────────── */
+
+const ENTITY_TYPES_ENUM = [
+  "person",
+  "organization",
+  "institution",
+  "company",
+  "party",
+  "country",
+  "county",
+  "city",
+  "location",
+  "product",
+  "crypto",
+  "law",
+  "event",
+];
+
+const EXTRACT_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          index: { type: "integer" },
+          entities: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                type: { type: "string", enum: ENTITY_TYPES_ENUM },
+                aliases: { type: "array", items: { type: "string" } },
+              },
+              required: ["name", "type", "aliases"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["index", "entities"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+/**
+ * Extrage entitățile reutilizabile din semnale (batch).
+ * Numele canonice sunt în română; aliasurile includ variantele frecvente.
+ */
+export async function extractEntities(
+  items: { titlu: string; descriere: string }[]
+): Promise<import("@/lib/ai-types").EntityExtractionResult> {
+  const client = getClient();
+  const listing = items
+    .map(
+      (item, i) =>
+        `${i}. ${item.titlu}${item.descriere ? ` — ${item.descriere.slice(0, 200)}` : ""}`
+    )
+    .join("\n");
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 12000,
+    system: `Ești motorul de extracție de entități al unei redacții românești. Pentru fiecare știre din listă, extrage entitățile numite, cu tipul corect:
+- person (persoane), organization (organizații generale/internaționale), institution (instituții de stat), company (companii private), party (partide politice), country (țări), county (județe), city (orașe/comune), location (alte locuri), product (produse), crypto (criptomonede), law (legi/ordonanțe/proiecte de lege), event (evenimente cu nume: summituri, alegeri, competiții).
+
+Reguli:
+- name: numele canonic, în română, cu diacritice, forma cea mai completă și neutră (ex: "Klaus Iohannis", nu "președintele Iohannis"; "SUA", nu "Statele Unite ale Americii").
+- aliases: 1-4 variante frecvente prin care apare aceeași entitate (română și engleză), inclusiv acronime. Fără duplicate ale numelui canonic.
+- Extrage DOAR entitățile care apar explicit în text. Nu inventa. Nu deduce.
+- Max 8 entități per știre, cele mai relevante. Listă goală dacă nu există.
+- Fiecare index din listă apare exact o dată în răspuns.`,
+    output_config: {
+      format: { type: "json_schema", schema: EXTRACT_SCHEMA },
+    },
+    messages: [
+      { role: "user", content: `Extrage entitățile din aceste știri:\n\n${listing}` },
+    ],
+  });
+
+  return JSON.parse(textOf(response)) as import("@/lib/ai-types").EntityExtractionResult;
+}

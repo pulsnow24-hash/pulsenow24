@@ -88,5 +88,32 @@ service cloud.firestore {
       allow create, update: if isNewsroom() && validStory();
       allow delete: if isNewsroom();
     }
+
+    // ── Entities: noduri de cunoaștere reutilizabile ──
+    // Citire publică (viitoarele pagini de entitate). Scriere doar redacție,
+    // cu validare de tipuri pe câmpurile agregate.
+    function validEntity() {
+      let d = request.resource.data;
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 120
+        && d.type in ['person', 'organization', 'institution', 'company',
+                      'party', 'country', 'county', 'city', 'location',
+                      'product', 'crypto', 'law', 'event']
+        && d.aliases is list && d.aliases.size() <= 30
+        && d.mentionCount is number && d.mentionCount >= 0
+        && d.relatedStoryIds is list
+        && d.relatedArticleIds is list
+        && d.relatedEntityIds is list
+        && scoreOk(d.trendScore)
+        && scoreOk(d.importanceScore)
+        && d.firstSeen is string && d.lastSeen is string
+        && d.dailyMentions is map;
+    }
+    match /entities/{id} {
+      allow read: if true;
+      // request.resource.data e documentul rezultat (merged), deci validarea
+      // acoperă și update-urile parțiale (ex: arrayUnion pe relatedArticleIds)
+      allow create, update: if isNewsroom() && validEntity();
+      allow delete: if isNewsroom();
+    }
   }
 }

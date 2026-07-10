@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useNewsroom } from "./newsroom-provider";
+import EntityPulse from "./entity-pulse";
 
 interface Stats {
   publicate: number;
@@ -190,6 +191,8 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+
+      <EntityPulse />
     </div>
   );
 }
