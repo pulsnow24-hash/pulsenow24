@@ -1,0 +1,133 @@
+/**
+ * Teste pentru regulile Firestore — rulate în emulator:
+ *   npx firebase emulators:exec --only firestore --project demo-pulsnow "npx tsx tests/rules.test.mts"
+ *
+ * Acoperă exact tiparele de acces ale aplicației: site public (neautentificat)
+ * și redacție (autentificat), pe toate cele 6 colecții.
+ */
+import { readFileSync } from "node:fs";
+import {
+  initializeTestEnvironment,
+  assertSucceeds,
+  assertFails,
+} from "@firebase/rules-unit-testing";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  deleteDoc,
+} from "firebase/firestore";
+
+const env = await initializeTestEnvironment({
+  projectId: "demo-pulsnow",
+  firestore: { rules: readFileSync("firestore.rules", "utf8") },
+});
+
+let passed = 0;
+let failed = 0;
+async function test(name: string, fn: () => Promise<unknown>) {
+  try {
+    await fn();
+    passed++;
+    console.log(`  ✓ ${name}`);
+  } catch (e) {
+    failed++;
+    console.log(`  ✗ ${name} — ${e instanceof Error ? e.message.split("\n")[0] : e}`);
+  }
+}
+
+const validStory = {
+  title: "Eveniment de test",
+  status: "developing",
+  summary: "Rezumat.",
+  categorie: "Actualitate",
+  timeline: [{ at: "2026-07-10T10:00:00Z", type: "created", title: "Story creat" }],
+  articleIds: [],
+  sources: ["Digi24"],
+  signalCount: 1,
+  entities: ["tema"],
+  people: [],
+  locations: [],
+  organizations: [],
+  trustScore: 70,
+  importanceScore: 80,
+  breakingScore: 50,
+  localityScore: 80,
+  countryCode: "RO",
+  createdAt: "2026-07-10T10:00:00Z",
+  lastUpdated: "2026-07-10T10:00:00Z",
+};
+
+const validArticle = {
+  titlu: "Articol de test",
+  sumar: "Sumar",
+  categorie: "Actualitate",
+  badge: "blue",
+  buzz: false,
+  data: "10 iulie 2026",
+  publicatLa: "2026-07-10T10:00:00Z",
+  citire: "2 min",
+  fapt: "F",
+  unghi: "U",
+  opinie: "O",
+  predictie: "P",
+  dezbatere: "D?",
+  qa: [],
+  status: "publicat",
+  workflow: "published",
+};
+
+// Date pre-existente (scrise ocolind regulile)
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const db = ctx.firestore();
+  await setDoc(doc(db, "articles", "art1"), validArticle);
+  await setDoc(doc(db, "config", "ticker"), { items: ["știre"] });
+  await setDoc(doc(db, "config", "automation"), { autoRefresh: false });
+  await setDoc(doc(db, "inbox", "item1"), { titlu: "x", status: "new" });
+  await setDoc(doc(db, "sources", "digi24"), { name: "Digi24" });
+  await setDoc(doc(db, "import_logs", "log1"), { at: "2026-07-10" });
+  await setDoc(doc(db, "stories", "story1"), validStory);
+});
+
+const anon = env.unauthenticatedContext().firestore();
+const editor = env.authenticatedContext("editor-uid").firestore();
+
+console.log("\nPUBLIC (site-ul, neautentificat):");
+await test("citește lista de articole", () => assertSucceeds(getDocs(collection(anon, "articles"))));
+await test("citește un articol", () => assertSucceeds(getDoc(doc(anon, "articles", "art1"))));
+await test("citește config/ticker", () => assertSucceeds(getDoc(doc(anon, "config", "ticker"))));
+await test("NU citește config/automation", () => assertFails(getDoc(doc(anon, "config", "automation"))));
+await test("citește lista de stories", () => assertSucceeds(getDocs(collection(anon, "stories"))));
+await test("citește un story", () => assertSucceeds(getDoc(doc(anon, "stories", "story1"))));
+await test("NU scrie articole", () => assertFails(setDoc(doc(anon, "articles", "hack"), validArticle)));
+await test("NU scrie stories", () => assertFails(setDoc(doc(anon, "stories", "hack"), validStory)));
+await test("NU șterge stories", () => assertFails(deleteDoc(doc(anon, "stories", "story1"))));
+await test("NU citește inbox", () => assertFails(getDocs(collection(anon, "inbox"))));
+await test("NU citește sources", () => assertFails(getDocs(collection(anon, "sources"))));
+await test("NU citește import_logs", () => assertFails(getDocs(collection(anon, "import_logs"))));
+
+console.log("\nREDACȚIE (autentificat):");
+await test("scrie articole", () => assertSucceeds(setDoc(doc(editor, "articles", "art2"), validArticle)));
+await test("citește+scrie inbox", () => assertSucceeds(setDoc(doc(editor, "inbox", "item2"), { titlu: "y", status: "new" })));
+await test("scrie sources", () => assertSucceeds(setDoc(doc(editor, "sources", "hotnews"), { name: "HotNews" })));
+await test("scrie import_logs", () => assertSucceeds(setDoc(doc(editor, "import_logs", "log2"), { at: "2026-07-10" })));
+await test("scrie config/automation", () => assertSucceeds(setDoc(doc(editor, "config", "automation"), { autoRefresh: true })));
+await test("scrie config/ticker", () => assertSucceeds(setDoc(doc(editor, "config", "ticker"), { items: ["a"] })));
+await test("creează story valid", () => assertSucceeds(setDoc(doc(editor, "stories", "story2"), validStory)));
+await test("actualizează story valid", () => assertSucceeds(setDoc(doc(editor, "stories", "story1"), { ...validStory, signalCount: 2 })));
+await test("șterge story", () => assertSucceeds(deleteDoc(doc(editor, "stories", "story2"))));
+
+console.log("\nVALIDARE SCHEMĂ STORIES (redacție):");
+await test("respinge trustScore string", () => assertFails(setDoc(doc(editor, "stories", "bad1"), { ...validStory, trustScore: "90" })));
+await test("respinge trustScore 150 (interval)", () => assertFails(setDoc(doc(editor, "stories", "bad2"), { ...validStory, trustScore: 150 })));
+await test("respinge status necunoscut", () => assertFails(setDoc(doc(editor, "stories", "bad3"), { ...validStory, status: "viral" })));
+await test("respinge fără titlu", () => assertFails(setDoc(doc(editor, "stories", "bad4"), { ...validStory, title: "" })));
+await test("respinge timeline non-listă", () => assertFails(setDoc(doc(editor, "stories", "bad5"), { ...validStory, timeline: "nu" })));
+await test("respinge câmp străin", () => assertFails(setDoc(doc(editor, "stories", "bad6"), { ...validStory, hacked: true })));
+await test("acceptă coverImage opțional", () => assertSucceeds(setDoc(doc(editor, "stories", "ok1"), { ...validStory, coverImage: "https://x/1.jpg" })));
+
+await env.cleanup();
+console.log(`\nREZULTAT: ${passed} trecute, ${failed} eșuate`);
+process.exit(failed ? 1 : 0);
