@@ -241,7 +241,7 @@ export async function runCopilot(req: CopilotRequest): Promise<CopilotResult> {
       format: { type: "json_schema", schema: SCHEMAS[action.kind] },
     },
     messages: [{ role: "user", content: action.instruction(req) }],
-  });
+  }, { timeout: 120_000, maxRetries: 1 });
 
   const block = response.content.find((b) => b.type === "text");
   if (!block || block.type !== "text") {

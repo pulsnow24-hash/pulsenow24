@@ -60,6 +60,8 @@ export interface ImportLog {
   autoApproved: number;
   errors: ImportError[];
   trigger: "manual" | "auto";
+  /** Durata fiecărei faze (ms) — diagnostic: care pas a durat sau a fost întrerupt */
+  phaseMs?: Record<string, number>;
 }
 
 export interface AutomationConfig {

@@ -79,6 +79,7 @@ export default function AutomationView() {
   const [config, setConfig] = useState<AutomationConfig>(DEFAULT_AUTOMATION);
   const [logs, setLogs] = useState<ImportLog[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshDone, setRefreshDone] = useState(false);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -139,7 +140,12 @@ export default function AutomationView() {
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
       } finally {
-        setRefreshing(false);
+        // Bara ajunge la 100% și abia apoi dispare — indiferent de rezultat.
+        setRefreshDone(true);
+        setTimeout(() => {
+          setRefreshDone(false);
+          setRefreshing(false);
+        }, 700);
       }
     },
     [db, auth, reload, refreshing]
@@ -274,12 +280,13 @@ export default function AutomationView() {
       {refreshing && (
         <div className="mb-4">
           <AiProgress
-            durata={35}
+            durata={100}
+            complete={refreshDone}
             etape={[
               "Descarc fluxurile RSS active…",
-              "Măsor sănătatea și timpii de răspuns…",
               "AI-ul scorează și categorizează știrile…",
-              "Aplic regulile și salvez importul…",
+              "Grupez semnalele în story-uri…",
+              "Extrag entitățile și salvez importul…",
             ]}
           />
         </div>

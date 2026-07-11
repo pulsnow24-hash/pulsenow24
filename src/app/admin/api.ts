@@ -1,23 +1,38 @@
 /** Apeluri către rutele API ale adminului, autentificate cu tokenul Firebase */
 import type { Auth } from "firebase/auth";
 
+/** Timeout implicit: niciun apel nu are voie să aștepte la nesfârșit. */
+const DEFAULT_TIMEOUT_MS = 120_000;
+
 export async function callApi<T>(
   auth: Auth,
   path: string,
-  body: unknown
+  body: unknown,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS
 ): Promise<T> {
   const user = auth.currentUser;
   if (!user) throw new Error("Sesiune expirată — reconectează-te.");
   const token = await user.getIdToken();
 
-  const res = await fetch(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new Error(
+        `Timeout după ${Math.round(timeoutMs / 1000)}s la ${path} — serverul nu a răspuns.`
+      );
+    }
+    throw err;
+  }
 
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };

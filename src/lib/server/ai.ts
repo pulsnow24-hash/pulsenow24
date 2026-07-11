@@ -219,7 +219,7 @@ export async function generateArticle(input: {
         }\n\n<material_sursa>\n${sourceText}\n</material_sursa>`,
       },
     ],
-  });
+  }, { timeout: 300_000, maxRetries: 1 });
 
   const articol = JSON.parse(textOf(response)) as GeneratedArticle;
   // Imaginea vine din metadatele paginii (og:image), nu de la model
@@ -267,7 +267,7 @@ Nu inventa fapte. Nu pune linkuri — se adaugă la publicare.`,
         content: `Generează postările pentru acest articol:\n\nTitlu: ${article.titlu}\nSumar: ${article.sumar}\nFapt: ${article.fapt}\nOpinia PulsNow24: ${article.opinie}\nÎntrebare de dezbatere: ${article.dezbatere}`,
       },
     ],
-  });
+  }, { timeout: 120_000, maxRetries: 1 });
 
   return JSON.parse(textOf(response)) as SocialPosts;
 }
@@ -389,7 +389,7 @@ export async function scoreNewsItems(
     messages: [
       { role: "user", content: `Evaluează aceste știri:\n\n${listing}` },
     ],
-  });
+  }, { timeout: 180_000, maxRetries: 1 });
 
   const parsed = JSON.parse(textOf(response)) as { items: RawScore[] };
 
@@ -473,7 +473,7 @@ Fii echilibrat și prudent — nu declara ceva fals fără temei, dar semnaleaz�
       format: { type: "json_schema", schema: FACTCHECK_SCHEMA },
     },
     messages: [{ role: "user", content: `Verifică această știre:\n\n${context}` }],
-  });
+  }, { timeout: 150_000, maxRetries: 1 });
 
   return JSON.parse(textOf(response)) as import("@/lib/ai-types").FactCheckResult;
 }
@@ -574,7 +574,7 @@ Reguli:
         content: `STORY-URI ACTIVE:\n${candidateList}\n\nITEME NOI DE ASIGNAT:\n${itemList}`,
       },
     ],
-  });
+  }, { timeout: 120_000, maxRetries: 1 });
 
   return JSON.parse(textOf(response)) as StoryAssignmentResult;
 }
@@ -662,7 +662,7 @@ Reguli:
     messages: [
       { role: "user", content: `Extrage entitățile din aceste știri:\n\n${listing}` },
     ],
-  });
+  }, { timeout: 150_000, maxRetries: 1 });
 
   return JSON.parse(textOf(response)) as import("@/lib/ai-types").EntityExtractionResult;
 }

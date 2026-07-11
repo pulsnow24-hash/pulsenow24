@@ -116,7 +116,7 @@ export function AiImportCard({
     }
     setBusy(true);
     try {
-      const g = await callApi<GeneratedArticle>(auth, "/api/ai/generate", input);
+      const g = await callApi<GeneratedArticle>(auth, "/api/ai/generate", input, 320_000);
       onGenerated(g, input.url ?? "");
       setOpen(false);
       toast.success("Articol generat — verifică fiecare bloc înainte de publicare.");

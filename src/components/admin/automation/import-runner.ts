@@ -86,6 +86,35 @@ export interface ImportSummary {
   errors: { source: string; message: string }[];
 }
 
+/** Promisiune cu limită de timp: importul nu are voie să rămână blocat. */
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  step: string
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `Pasul „${step}" nu a răspuns în ${Math.round(timeoutMs / 1000)}s și a fost întrerupt`
+          )
+        ),
+      timeoutMs
+    );
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
+
 export async function runImport(opts: {
   db: Firestore;
   auth: Auth;
@@ -95,10 +124,26 @@ export async function runImport(opts: {
 }): Promise<ImportSummary> {
   const { db, auth, trigger } = opts;
   const start = Date.now();
-  const [allSources, config] = await Promise.all([
-    loadSources(db),
-    loadAutomationConfig(db),
-  ]);
+
+  // Fiecare fază e cronometrată și limitată în timp; duratele ajung în log,
+  // ca să se vadă exact care pas a durat (sau a fost întrerupt).
+  const phaseMs: Record<string, number> = {};
+  const phase = async <T>(
+    name: string,
+    timeoutMs: number,
+    fn: () => Promise<T>
+  ): Promise<T> => {
+    const t0 = Date.now();
+    try {
+      return await withTimeout(fn(), timeoutMs, name);
+    } finally {
+      phaseMs[name] = Date.now() - t0;
+    }
+  };
+
+  const [allSources, config] = await phase("config", 30_000, () =>
+    Promise.all([loadSources(db), loadAutomationConfig(db)])
+  );
 
   let active = allSources.filter((s) => s.enabled && !s.blocked);
   if (opts.onlyDue) active = active.filter((s) => isDue(s, config.intervalMinutes));
@@ -108,17 +153,29 @@ export async function runImport(opts: {
 
   const byName = new Map(active.map((s) => [s.name, s]));
 
-  const { items, perSource, feedErrors } = await callApi<{
-    items: InboxScoredItem[];
-    perSource: SourceSyncResult[];
-    feedErrors: string[];
-  }>(auth, "/api/inbox/refresh", {
-    sources: active.map((s) => ({ id: s.id, name: s.name, url: s.url })),
-  });
+  // Cel mai lung pas legitim: descărcarea feed-urilor + scoringul AI.
+  // Serverul are propriile timeout-uri (feed 10s, AI 180s + 1 retry).
+  const { items, perSource, feedErrors } = await phase(
+    "feeds+scoring",
+    420_000,
+    () =>
+      callApi<{
+        items: InboxScoredItem[];
+        perSource: SourceSyncResult[];
+        feedErrors: string[];
+      }>(
+        auth,
+        "/api/inbox/refresh",
+        { sources: active.map((s) => ({ id: s.id, name: s.name, url: s.url })) },
+        410_000
+      )
+  );
 
   // Itemele existente în inbox — pentru dedup
-  const existingSnap = await getDocs(collection(db, "inbox"));
-  const existing = new Set(existingSnap.docs.map((d) => d.id));
+  const existing = await phase("dedup", 30_000, async () => {
+    const snap = await getDocs(collection(db, "inbox"));
+    return new Set(snap.docs.map((d) => d.id));
+  });
 
   const rule = config.rules.autoApprove;
   const fresh = items.filter(
@@ -131,44 +188,51 @@ export async function runImport(opts: {
   const storiesById = new Map<string, Story>();
   if (fresh.length > 0) {
     try {
-      const candidates = await getActiveStories(db);
+      const candidates = await phase("story-index", 30_000, () =>
+        getActiveStories(db)
+      );
       for (const s of candidates) storiesById.set(s.id, s);
-      const result = await callApi<StoryAssignmentResult>(
-        auth,
-        "/api/stories/assign",
-        {
-          items: fresh.map((i) => ({
-            titlu: i.titlu,
-            descriere: i.descriere,
-            sursa: i.sursa,
-            categorie: i.categorie,
-            countryCode: i.countryCode,
-          })),
-          candidates: candidates.map((s) => ({
-            id: s.id,
-            title: s.title,
-            summary: s.summary,
-            entities: [...s.entities, ...s.people, ...s.organizations],
-          })),
-        }
+      const result = await phase("story-assign", 190_000, () =>
+        callApi<StoryAssignmentResult>(
+          auth,
+          "/api/stories/assign",
+          {
+            items: fresh.map((i) => ({
+              titlu: i.titlu,
+              descriere: i.descriere,
+              sursa: i.sursa,
+              categorie: i.categorie,
+              countryCode: i.countryCode,
+            })),
+            candidates: candidates.map((s) => ({
+              id: s.id,
+              title: s.title,
+              summary: s.summary,
+              entities: [...s.entities, ...s.people, ...s.organizations],
+            })),
+          },
+          180_000
+        )
       );
       // Creăm story-urile noi propuse de AI
       const refToId = new Map<string, string>();
-      for (const def of result.newStories) {
-        // Categoria/țara story-ului: din primul item asignat acestui ref
-        const firstIdx = result.assignments.find(
-          (a) => a.storyRef === def.ref
-        )?.index;
-        const seed = firstIdx !== undefined ? fresh[firstIdx] : undefined;
-        const story = await createAndSaveStory(
-          db,
-          def,
-          seed?.categorie ?? "Actualitate",
-          seed?.countryCode ?? "RO"
-        );
-        refToId.set(def.ref, story.id);
-        storiesById.set(story.id, story);
-      }
+      await phase("story-create", 60_000, async () => {
+        for (const def of result.newStories) {
+          // Categoria/țara story-ului: din primul item asignat acestui ref
+          const firstIdx = result.assignments.find(
+            (a) => a.storyRef === def.ref
+          )?.index;
+          const seed = firstIdx !== undefined ? fresh[firstIdx] : undefined;
+          const story = await createAndSaveStory(
+            db,
+            def,
+            seed?.categorie ?? "Actualitate",
+            seed?.countryCode ?? "RO"
+          );
+          refToId.set(def.ref, story.id);
+          storiesById.set(story.id, story);
+        }
+      });
       for (const a of result.assignments) {
         const storyId = a.storyRef.startsWith("NEW::")
           ? refToId.get(a.storyRef)
@@ -187,65 +251,79 @@ export async function runImport(opts: {
   let added = 0;
   let autoApproved = 0;
 
-  for (let i = 0; i < fresh.length; i++) {
-    const item = fresh[i];
-    if (added >= config.maxPerRun) break; // rate limiting
-    const id = hashLink(item.link);
+  await phase("inbox-write", 120_000, async () => {
+    for (let i = 0; i < fresh.length; i++) {
+      const item = fresh[i];
+      if (added >= config.maxPerRun) break; // rate limiting
+      const id = hashLink(item.link);
 
-    const source = byName.get(item.sursa);
-    const approve =
-      rule.enabled &&
-      item.importanceScore >= rule.minImportance &&
-      item.trustScore >= rule.minTrust &&
-      (!rule.trustedOnly || !!source?.trusted);
+      const source = byName.get(item.sursa);
+      const approve =
+        rule.enabled &&
+        item.importanceScore >= rule.minImportance &&
+        item.trustScore >= rule.minTrust &&
+        (!rule.trustedOnly || !!source?.trusted);
 
-    const storyId = storyIdByIndex.get(i);
-    await setDoc(doc(db, "inbox", id), {
-      ...item,
-      ...(storyId ? { storyId } : {}),
-      status: approve ? "approved" : "new",
-      addedAt: new Date().toISOString(),
-      autoImported: trigger === "auto",
-    });
-    added++;
-    if (approve) autoApproved++;
+      const storyId = storyIdByIndex.get(i);
+      await setDoc(doc(db, "inbox", id), {
+        ...item,
+        ...(storyId ? { storyId } : {}),
+        status: approve ? "approved" : "new",
+        addedAt: new Date().toISOString(),
+        autoImported: trigger === "auto",
+      });
+      added++;
+      if (approve) autoApproved++;
 
-    // Actualizăm story-ul cu semnalul (scoruri, timeline, coroborare)
-    if (storyId) {
-      const story = storiesById.get(storyId);
-      if (story) {
-        storiesById.set(
-          storyId,
-          applySignalInMemory(story, {
-            refId: id,
-            titlu: item.titlu,
-            sursa: item.sursa,
-            publicatLa: item.publicatLa,
-            importanceScore: item.importanceScore,
-            trustScore: item.trustScore,
-            countryCode: item.countryCode,
-          })
-        );
+      // Actualizăm story-ul cu semnalul (scoruri, timeline, coroborare)
+      if (storyId) {
+        const story = storiesById.get(storyId);
+        if (story) {
+          storiesById.set(
+            storyId,
+            applySignalInMemory(story, {
+              refId: id,
+              titlu: item.titlu,
+              sursa: item.sursa,
+              publicatLa: item.publicatLa,
+              importanceScore: item.importanceScore,
+              trustScore: item.trustScore,
+              countryCode: item.countryCode,
+            })
+          );
+        }
       }
     }
-  }
+  });
 
-  // Persistăm story-urile atinse (o singură scriere per story)
-  const touchedStories = [...storiesById.values()].filter((s) =>
-    [...storyIdByIndex.values()].includes(s.id)
-  );
-  await Promise.all(touchedStories.map((s) => saveStory(db, s)));
+  // Persistăm story-urile atinse (o singură scriere per story).
+  // Eșecul nu blochează importul — itemele sunt deja în inbox.
+  try {
+    const touchedStories = [...storiesById.values()].filter((s) =>
+      [...storyIdByIndex.values()].includes(s.id)
+    );
+    await phase("story-save", 60_000, () =>
+      Promise.all(touchedStories.map((s) => saveStory(db, s)))
+    );
+  } catch (err) {
+    feedErrors.push(
+      `Story Engine: ${err instanceof Error ? err.message : "salvare eșuată"}`
+    );
+  }
 
   // ── Entity Intelligence: extragem și agregăm entitățile semnalelor ──
   // Complet fail-safe: orice eroare aici NU blochează importul.
   if (fresh.length > 0) {
     try {
-      const extraction = await callApi<EntityExtractionResult>(
-        auth,
-        "/api/entities/extract",
-        {
-          items: fresh.map((i) => ({ titlu: i.titlu, descriere: i.descriere })),
-        }
+      const extraction = await phase("entity-extract", 190_000, () =>
+        callApi<EntityExtractionResult>(
+          auth,
+          "/api/entities/extract",
+          {
+            items: fresh.map((i) => ({ titlu: i.titlu, descriere: i.descriere })),
+          },
+          180_000
+        )
       );
       const byIndex = new Map(extraction.items.map((x) => [x.index, x.entities]));
       const signals: SignalEntities[] = fresh.map((item, i) => ({
@@ -253,9 +331,13 @@ export async function runImport(opts: {
         importance: item.importanceScore,
         entities: byIndex.get(i) ?? [],
       }));
-      const existingEntities = await loadEntities(db);
+      const existingEntities = await phase("entity-index", 60_000, () =>
+        loadEntities(db)
+      );
       const touched = resolveMentions(existingEntities, signals);
-      await Promise.all(touched.map((e) => saveEntity(db, e)));
+      await phase("entity-save", 60_000, () =>
+        Promise.all(touched.map((e) => saveEntity(db, e)))
+      );
     } catch (err) {
       feedErrors.push(
         `Entity Engine: ${err instanceof Error ? err.message : "extracție eșuată"}`
@@ -263,22 +345,28 @@ export async function runImport(opts: {
     }
   }
 
-  // Actualizăm sănătatea fiecărei surse sincronizate
-  const resultById = new Map(perSource.map((r) => [r.id, r]));
-  await Promise.all(
-    active.map(async (source) => {
-      const result = resultById.get(source.id);
-      if (!result) return;
-      const patch = applyHealth(source, result);
-      try {
-        await updateDoc(doc(db, "sources", source.id), patch);
-      } catch {
-        /* sursă ștearsă între timp — ignorăm */
-      }
-    })
-  );
+  // Actualizăm sănătatea fiecărei surse sincronizate — best-effort
+  try {
+    const resultById = new Map(perSource.map((r) => [r.id, r]));
+    await phase("source-health", 30_000, () =>
+      Promise.all(
+        active.map(async (source) => {
+          const result = resultById.get(source.id);
+          if (!result) return;
+          const patch = applyHealth(source, result);
+          try {
+            await updateDoc(doc(db, "sources", source.id), patch);
+          } catch {
+            /* sursă ștearsă între timp — ignorăm */
+          }
+        })
+      )
+    );
+  } catch {
+    /* sănătatea surselor e statistică — nu blochează importul */
+  }
 
-  // Log de import
+  // Log de import — best-effort; include durata fiecărei faze
   const errors = feedErrors.map((e) => {
     const [source, ...rest] = e.split(":");
     return { source: source.trim(), message: rest.join(":").trim() };
@@ -293,8 +381,13 @@ export async function runImport(opts: {
     autoApproved,
     errors,
     trigger,
+    phaseMs,
   };
-  await setDoc(doc(db, "import_logs", logId), log);
+  try {
+    await withTimeout(setDoc(doc(db, "import_logs", logId), log), 15_000, "log");
+  } catch {
+    /* logul e diagnostic — nu blochează importul */
+  }
 
   return {
     added,

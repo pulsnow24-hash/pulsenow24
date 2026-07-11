@@ -42,6 +42,7 @@ export default function InboxView() {
   const [filters, setFilters] = useState<InboxFilters>(DEFAULT_FILTERS);
   const [view, setView] = useState<"cards" | "table">("cards");
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshDone, setRefreshDone] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
   const [nowTs] = useState(() => Date.now());
@@ -143,7 +144,7 @@ export default function InboxView() {
       try {
         const g = await callApi<GeneratedArticle>(auth, "/api/ai/generate", {
           url: item.link,
-        });
+        }, 320_000);
         const form = generatedToForm(g, item.link);
         if (!form.sursaNume) form.sursaNume = item.sursa;
         // Articolul moștenește story-ul semnalului din care e generat
@@ -167,7 +168,7 @@ export default function InboxView() {
         url: item.link,
         title: item.titlu,
         description: item.descriere,
-      }),
+      }, 160_000),
     [auth]
   );
 
@@ -219,7 +220,12 @@ export default function InboxView() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
-      setRefreshing(false);
+      // Bara ajunge la 100% și abia apoi dispare — indiferent de rezultat.
+      setRefreshDone(true);
+      setTimeout(() => {
+        setRefreshDone(false);
+        setRefreshing(false);
+      }, 700);
     }
   }, [auth, db, load]);
 
@@ -319,12 +325,13 @@ export default function InboxView() {
       {refreshing && (
         <div className="mb-4">
           <AiProgress
-            durata={35}
+            durata={100}
+            complete={refreshDone}
             etape={[
               "Citesc fluxurile RSS (Digi24, HotNews, G4Media, Biziday)…",
               "AI-ul evaluează importanța, trust-ul și riscul fiecărei știri…",
-              "Calculez scorurile și detectez dublurile…",
-              "Salvez știrile noi în inbox…",
+              "Grupez semnalele în story-uri…",
+              "Extrag entitățile și actualizez inboxul…",
             ]}
           />
         </div>
