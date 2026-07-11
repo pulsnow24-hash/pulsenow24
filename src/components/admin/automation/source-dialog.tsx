@@ -26,6 +26,14 @@ import { cn } from "@/lib/utils";
 import { callApi } from "@/app/admin/api";
 import { PUBLICATION } from "@/lib/engine/publication";
 import { newSource, type RssSource } from "@/lib/engine/sources";
+import {
+  SOURCE_KINDS,
+  SOURCE_KIND_LABELS,
+  WORKSPACES,
+  sourceSyncMode,
+  type SourceKind,
+  type Workspace,
+} from "@/lib/engine/workspace";
 import { countryFlag, countryName } from "@/components/admin/inbox/helpers";
 
 interface ValidationResult {
@@ -60,6 +68,8 @@ export default function SourceDialog({
   const [refreshInterval, setRefreshInterval] = useState("0");
   const [trusted, setTrusted] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [kind, setKind] = useState<SourceKind>("rss");
+  const [workspace, setWorkspace] = useState<Workspace>("national");
   const [validating, setValidating] = useState(false);
   const [result, setResult] = useState<ValidationResult | null>(null);
   const [saving, setSaving] = useState(false);
@@ -79,6 +89,8 @@ export default function SourceDialog({
       setRefreshInterval(String(editing.refreshInterval));
       setTrusted(editing.trusted);
       setBlocked(editing.blocked);
+      setKind(editing.kind ?? "rss");
+      setWorkspace(editing.workspace ?? "national");
     } else {
       setName("");
       setUrl("");
@@ -88,6 +100,8 @@ export default function SourceDialog({
       setRefreshInterval("0");
       setTrusted(false);
       setBlocked(false);
+      setKind("rss");
+      setWorkspace("national");
     }
   }, [open, editing]);
 
@@ -141,6 +155,8 @@ export default function SourceDialog({
         refreshInterval: Number(refreshInterval),
         trusted,
         blocked,
+        kind,
+        workspace,
       };
       // Nu trimitem language=undefined către Firestore
       const lang = result?.language ?? base.language;
@@ -230,6 +246,51 @@ export default function SourceDialog({
             <Label className="text-xs text-muted-foreground">Nume sursă</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Tip sursă</Label>
+              <Select value={kind} onValueChange={(v) => setKind(v as SourceKind)}>
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SOURCE_KINDS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {SOURCE_KIND_LABELS[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Workspace</Label>
+              <Select
+                value={workspace}
+                onValueChange={(v) => setWorkspace(v as Workspace)}
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {WORKSPACES.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.emoji} {w.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {sourceSyncMode(kind) === "connector" && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-[12px] text-amber-500">
+              <strong>Conector necesar</strong> — acest tip de sursă nu se poate
+              sincroniza automat prin RSS. Sursa va fi stocată și monitorizată
+              manual până la conectarea unui conector dedicat (ex: API-ul
+              oficial Facebook). Nu simulăm date.
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

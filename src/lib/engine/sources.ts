@@ -15,6 +15,10 @@ export interface RssSource {
   category: string;
   countryCode: string;
   language?: string;
+  /** Tipul de conector (implicit "rss"); vezi engine/workspace.ts */
+  kind?: import("./workspace").SourceKind;
+  /** Workspace-ul căruia îi e asignată sursa (implicit "national") */
+  workspace?: import("./workspace").Workspace;
   trusted: boolean;
   blocked: boolean;
   enabled: boolean;
@@ -129,6 +133,8 @@ export function newSource(
     addedAt: partial.addedAt ?? new Date().toISOString(),
   };
   if (partial.language) base.language = partial.language;
+  if (partial.kind) base.kind = partial.kind;
+  if (partial.workspace) base.workspace = partial.workspace;
   return base;
 }
 

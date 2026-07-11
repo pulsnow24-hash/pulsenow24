@@ -157,6 +157,40 @@ await test("respinge tip necunoscut", () => assertFails(setDoc(doc(editor, "enti
 await test("respinge trendScore invalid", () => assertFails(setDoc(doc(editor, "entities", "bad2"), { ...validEntity, trendScore: "sus" })));
 await test("respinge dailyMentions non-map", () => assertFails(setDoc(doc(editor, "entities", "bad3"), { ...validEntity, dailyMentions: [1, 2] })));
 
+const validAlert = {
+  workspace: "valcea",
+  type: "emergency",
+  severity: "urgent",
+  status: "new",
+  title: "Urgență",
+  message: "Incendiu raportat la Brezoi",
+  sourceName: "TestVâlcea",
+  itemId: "item1",
+  institutions: ["ISU Vâlcea"],
+  at: "2026-07-11T10:00:00Z",
+};
+
+console.log("\nALERTS (inteligență internă — niciodată publice):");
+await test("public NU citește alerts", async () => {
+  await env.withSecurityRulesDisabled(async (ctx) =>
+    setDoc(doc(ctx.firestore(), "alerts", "a1"), validAlert)
+  );
+  await assertFails(getDocs(collection(anon, "alerts")));
+});
+await test("public NU scrie alerts", () => assertFails(setDoc(doc(anon, "alerts", "hack"), validAlert)));
+await test("redacția citește alerts", () => assertSucceeds(getDocs(collection(editor, "alerts"))));
+await test("redacția creează alertă validă", () => assertSucceeds(setDoc(doc(editor, "alerts", "a2"), validAlert)));
+await test("redacția actualizează statusul", () => assertSucceeds(setDoc(doc(editor, "alerts", "a1"), { status: "dismissed" }, { merge: true })));
+await test("respinge tip de alertă necunoscut", () => assertFails(setDoc(doc(editor, "alerts", "bad1"), { ...validAlert, type: "ufo" })));
+await test("respinge severitate invalidă", () => assertFails(setDoc(doc(editor, "alerts", "bad2"), { ...validAlert, severity: "panic" })));
+await test("respinge titlu gol", () => assertFails(setDoc(doc(editor, "alerts", "bad3"), { ...validAlert, title: "" })));
+await test("redacția șterge alertă", () => assertSucceeds(deleteDoc(doc(editor, "alerts", "a2"))));
+
+console.log("\nCONFIG WORKSPACE (monitor-valcea):");
+await test("redacția scrie config/monitor-valcea", () =>
+  assertSucceeds(setDoc(doc(editor, "config", "monitor-valcea"), { keywords: ["Vâlcea"], institutions: [] })));
+await test("public NU citește config/monitor-valcea", () => assertFails(getDoc(doc(anon, "config", "monitor-valcea"))));
+
 await env.cleanup();
 console.log(`\nREZULTAT: ${passed} trecute, ${failed} eșuate`);
 process.exit(failed ? 1 : 0);

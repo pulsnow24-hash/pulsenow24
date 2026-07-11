@@ -158,3 +158,22 @@ export interface ExtractedEntityRaw {
 export interface EntityExtractionResult {
   items: { index: number; entities: ExtractedEntityRaw[] }[];
 }
+
+/* ── Monitor local: analiza de relevanță a semnalelor ──────── */
+
+export interface LocalAnalysisRaw {
+  index: number;
+  relevance: number;
+  institutionScore: number;
+  publicInterest: number;
+  urgency: "low" | "medium" | "high" | "critical";
+  priority: number;
+  commScore: number;
+  suggestion: string;
+  institutions: string[];
+  alertType: string;
+}
+
+export interface LocalAnalysisResult {
+  items: LocalAnalysisRaw[];
+}

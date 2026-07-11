@@ -46,6 +46,19 @@ import {
   type RssSource,
   type SourceSyncResult,
 } from "@/lib/engine/sources";
+import {
+  ALERT_TYPES,
+  deriveAlerts,
+  itemWorkspaces,
+  matchKeywords,
+  sourceSyncMode,
+  type AlertType,
+  type LocalAnalysis,
+  type MonitorAlert,
+  type Workspace,
+} from "@/lib/engine/workspace";
+import { loadWorkspaceConfig, saveAlert } from "@/lib/monitor-store";
+import type { LocalAnalysisResult } from "@/lib/ai-types";
 
 export async function loadSources(db: Firestore): Promise<RssSource[]> {
   const snap = await getDocs(collection(db, "sources"));
@@ -145,7 +158,11 @@ export async function runImport(opts: {
     Promise.all([loadSources(db), loadAutomationConfig(db)])
   );
 
-  let active = allSources.filter((s) => s.enabled && !s.blocked);
+  // Doar sursele cu flux (RSS & co.) se sincronizează automat; cele care
+  // cer conector (Facebook, website, custom) sunt stocate dar nu simulate.
+  let active = allSources.filter(
+    (s) => s.enabled && !s.blocked && sourceSyncMode(s.kind ?? "rss") === "feed"
+  );
   if (opts.onlyDue) active = active.filter((s) => isDue(s, config.intervalMinutes));
   if (active.length === 0) {
     return { added: 0, autoApproved: 0, itemsFound: 0, sourcesChecked: 0, errors: [] };
@@ -248,8 +265,80 @@ export async function runImport(opts: {
     }
   }
 
+  // ── Monitor local (workspace Vâlcea): etichete + analiză AI ──
+  // Complet fail-safe: orice eroare aici NU blochează importul.
+  const wsByIndex = new Map<number, Workspace[]>();
+  const localByIndex = new Map<number, LocalAnalysis>();
+  if (fresh.length > 0) {
+    try {
+      const cfg = await phase("monitor-config", 30_000, () =>
+        loadWorkspaceConfig(db)
+      );
+      const valceaSources = new Set(
+        allSources.filter((s) => s.workspace === "valcea").map((s) => s.name)
+      );
+      const kwByIndex = new Map<number, string[]>();
+      const candidates: number[] = [];
+      fresh.forEach((item, i) => {
+        const kws = matchKeywords(`${item.titlu} ${item.descriere}`, cfg.keywords);
+        kwByIndex.set(i, kws);
+        wsByIndex.set(
+          i,
+          itemWorkspaces(kws, valceaSources.has(item.sursa) ? "valcea" : undefined)
+        );
+        if (wsByIndex.get(i)!.includes("valcea")) candidates.push(i);
+      });
+
+      if (candidates.length > 0) {
+        const analysis = await phase("local-analysis", 160_000, () =>
+          callApi<LocalAnalysisResult>(
+            auth,
+            "/api/monitor/analyze",
+            {
+              items: candidates.map((i) => ({
+                titlu: fresh[i].titlu,
+                descriere: fresh[i].descriere,
+              })),
+              region: "județul Vâlcea",
+              institutions: cfg.institutions.map((x) => x.name),
+            },
+            150_000
+          )
+        );
+        const raw = new Map(analysis.items.map((x) => [x.index, x]));
+        candidates.forEach((itemIdx, batchIdx) => {
+          const r = raw.get(batchIdx);
+          if (!r) return;
+          const alertType =
+            r.alertType !== "none" && ALERT_TYPES.includes(r.alertType as AlertType)
+              ? (r.alertType as AlertType)
+              : null;
+          const pct = (n: number) =>
+            Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+          localByIndex.set(itemIdx, {
+            relevance: pct(r.relevance),
+            institutionScore: pct(r.institutionScore),
+            publicInterest: pct(r.publicInterest),
+            urgency: r.urgency,
+            priority: pct(r.priority),
+            commScore: pct(r.commScore),
+            ...(r.suggestion?.trim() ? { suggestion: r.suggestion.trim() } : {}),
+            institutions: r.institutions,
+            keywords: kwByIndex.get(itemIdx) ?? [],
+            alertType,
+          });
+        });
+      }
+    } catch (err) {
+      feedErrors.push(
+        `Monitor local: ${err instanceof Error ? err.message : "analiză eșuată"}`
+      );
+    }
+  }
+
   let added = 0;
   let autoApproved = 0;
+  const writtenIndexes = new Set<number>();
 
   await phase("inbox-write", 120_000, async () => {
     for (let i = 0; i < fresh.length; i++) {
@@ -265,14 +354,18 @@ export async function runImport(opts: {
         (!rule.trustedOnly || !!source?.trusted);
 
       const storyId = storyIdByIndex.get(i);
+      const local = localByIndex.get(i);
       await setDoc(doc(db, "inbox", id), {
         ...item,
         ...(storyId ? { storyId } : {}),
+        workspaces: wsByIndex.get(i) ?? ["national"],
+        ...(local ? { local } : {}),
         status: approve ? "approved" : "new",
         addedAt: new Date().toISOString(),
         autoImported: trigger === "auto",
       });
       added++;
+      writtenIndexes.add(i);
       if (approve) autoApproved++;
 
       // Actualizăm story-ul cu semnalul (scoruri, timeline, coroborare)
@@ -341,6 +434,39 @@ export async function runImport(opts: {
     } catch (err) {
       feedErrors.push(
         `Entity Engine: ${err instanceof Error ? err.message : "extracție eșuată"}`
+      );
+    }
+  }
+
+  // ── Monitor local: alertele semnalelor analizate (fail-safe) ──
+  if (localByIndex.size > 0) {
+    try {
+      const now = new Date().toISOString();
+      const alerts: MonitorAlert[] = [];
+      for (const [i, la] of localByIndex) {
+        if (!writtenIndexes.has(i)) continue; // doar itemele salvate în inbox
+        const item = fresh[i];
+        alerts.push(
+          ...deriveAlerts(
+            {
+              id: hashLink(item.link),
+              titlu: item.titlu,
+              sursa: item.sursa,
+              storyId: storyIdByIndex.get(i),
+            },
+            la,
+            now
+          )
+        );
+      }
+      if (alerts.length > 0) {
+        await phase("alerts", 30_000, () =>
+          Promise.all(alerts.map((a) => saveAlert(db, a)))
+        );
+      }
+    } catch (err) {
+      feedErrors.push(
+        `Monitor local: alerte — ${err instanceof Error ? err.message : "scriere eșuată"}`
       );
     }
   }

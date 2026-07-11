@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import { Network, TrendingUp, User, Building2, Flame } from "lucide-react";
 import { useNewsroom } from "./newsroom-provider";
+import { useWorkspace } from "./workspace-provider";
 import { loadEntities } from "@/lib/entity-store";
+import {
+  coreValceaEntityIds,
+  isLocalEntity,
+  type WorkspaceConfig,
+} from "@/lib/engine/workspace";
+import { loadWorkspaceConfig } from "@/lib/monitor-store";
 import {
   ENTITY_TYPE_LABELS,
   type Entity,
@@ -51,7 +58,9 @@ function EntityList({
 /** Cardul compact „Entity Pulse" de pe dashboard. */
 export default function EntityPulse() {
   const { db } = useNewsroom();
+  const { workspace } = useWorkspace();
   const [entities, setEntities] = useState<Entity[] | null>(null);
+  const [wsConfig, setWsConfig] = useState<WorkspaceConfig | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +76,17 @@ export default function EntityPulse() {
     };
   }, [db]);
 
-  const list = entities ?? [];
+  useEffect(() => {
+    if (workspace !== "valcea" || wsConfig) return;
+    loadWorkspaceConfig(db).then(setWsConfig).catch(() => {});
+  }, [workspace, wsConfig, db]);
+
+  // Lentila de workspace: Monitor Vâlcea vede doar entitățile locale
+  let list = entities ?? [];
+  if (workspace === "valcea" && wsConfig) {
+    const core = coreValceaEntityIds(wsConfig);
+    list = list.filter((e) => core.has(e.id) || isLocalEntity(e, wsConfig, core));
+  }
   const byMentions = [...list].sort((a, b) => b.mentionCount - a.mentionCount);
   const top = byMentions.slice(0, 5);
   const trending = [...list]

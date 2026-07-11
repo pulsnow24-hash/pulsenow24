@@ -37,6 +37,10 @@ export interface InboxDoc extends InboxScoredItem {
   addedAt: string;
   /** Story-ul (evenimentul) căruia îi aparține semnalul */
   storyId?: string;
+  /** Workspace-urile cărora le aparține semnalul (implicit național) */
+  workspaces?: import("@/lib/engine/workspace").Workspace[];
+  /** Analiza de inteligență locală (doar semnalele relevante local) */
+  local?: import("@/lib/engine/workspace").LocalAnalysis;
 }
 
 /** Normalizează un document brut (inclusiv formatul vechi) la forma curentă. */
@@ -93,6 +97,12 @@ export function normalizeInboxDoc(
     status,
     addedAt: str(d.addedAt, str(d.adaugatLa, new Date().toISOString())),
     ...(typeof d.storyId === "string" && d.storyId ? { storyId: d.storyId } : {}),
+    ...(Array.isArray(d.workspaces)
+      ? { workspaces: d.workspaces as InboxDoc["workspaces"] }
+      : {}),
+    ...(d.local && typeof d.local === "object"
+      ? { local: d.local as InboxDoc["local"] }
+      : {}),
   };
 }
 

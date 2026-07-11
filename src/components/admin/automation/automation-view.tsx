@@ -21,6 +21,7 @@ import {
   Radio,
 } from "lucide-react";
 import { useNewsroom } from "@/components/admin/newsroom-provider";
+import { useWorkspace } from "@/components/admin/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -74,6 +75,7 @@ function Metric({
 
 export default function AutomationView() {
   const { db, auth } = useNewsroom();
+  const { workspace } = useWorkspace();
 
   const [sources, setSources] = useState<RssSource[] | null>(null);
   const [config, setConfig] = useState<AutomationConfig>(DEFAULT_AUTOMATION);
@@ -236,6 +238,9 @@ export default function AutomationView() {
 
   const filtered = useMemo(() => {
     let list = [...(sources ?? [])];
+    // Lentila de workspace: Monitor Vâlcea își vede doar sursele lui
+    if (workspace === "valcea") list = list.filter((s) => s.workspace === "valcea");
+    else list = list.filter((s) => (s.workspace ?? "national") === "national");
     const q = search.trim().toLowerCase();
     if (q) list = list.filter((s) => s.name.toLowerCase().includes(q) || s.url.toLowerCase().includes(q));
     if (statusFilter === "blocked") list = list.filter((s) => s.blocked);
@@ -248,7 +253,7 @@ export default function AutomationView() {
       return a.name.localeCompare(b.name);
     });
     return list;
-  }, [sources, search, statusFilter, sortBy]);
+  }, [sources, search, statusFilter, sortBy, workspace]);
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-6">

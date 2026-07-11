@@ -2,8 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Search, Plus } from "lucide-react";
+import { Search, Plus, ChevronsUpDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { WORKSPACES } from "@/lib/engine/workspace";
+import { useWorkspace } from "./workspace-provider";
 import { activeNavItem } from "./nav";
 
 export default function Topbar({
@@ -13,11 +23,45 @@ export default function Topbar({
 }) {
   const pathname = usePathname();
   const active = activeNavItem(pathname);
+  const { workspace, workspaceDef, setWorkspace } = useWorkspace();
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-4">
       <div className="flex min-w-0 items-center gap-2 font-mono text-xs text-muted-foreground">
-        <span>Newsroom</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-foreground transition-colors hover:bg-secondary"
+              aria-label="Schimbă workspace-ul"
+            >
+              <span aria-hidden="true">{workspaceDef.emoji}</span>
+              <span className="hidden sm:inline">{workspaceDef.label}</span>
+              <ChevronsUpDown className="size-3 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              Workspace
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {WORKSPACES.map((w) => (
+              <DropdownMenuItem
+                key={w.id}
+                onClick={() => setWorkspace(w.id)}
+                className="gap-2"
+              >
+                <span aria-hidden="true">{w.emoji}</span>
+                <span className="flex-1">
+                  <span className="block text-sm">{w.label}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {w.description}
+                  </span>
+                </span>
+                {workspace === w.id && <Check className="size-4 text-primary" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <span className="text-border">/</span>
         <span className="truncate text-foreground">
           {active?.title ?? "Dashboard"}

@@ -115,5 +115,23 @@ service cloud.firestore {
       allow create, update: if isNewsroom() && validEntity();
       allow delete: if isNewsroom();
     }
+
+    // ── Monitor local: alertele sunt inteligență INTERNĂ — niciodată publice ──
+    function validAlert() {
+      let d = request.resource.data;
+      return d.workspace is string
+        && d.type in ['institution-announcement','emergency','infrastructure','funding','investment','negative-spike','public-interest','breaking-local']
+        && d.severity in ['info','attention','urgent']
+        && d.status in ['new','read','dismissed']
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 200
+        && d.message is string && d.message.size() <= 500
+        && d.itemId is string && d.at is string
+        && d.institutions is list;
+    }
+    match /alerts/{id} {
+      allow read: if isNewsroom();
+      allow create, update: if isNewsroom() && validAlert();
+      allow delete: if isNewsroom();
+    }
   }
 }

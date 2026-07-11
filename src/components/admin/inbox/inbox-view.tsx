@@ -6,6 +6,9 @@ import { toast } from "sonner";
 import { Inbox as InboxIcon, Sparkles } from "lucide-react";
 import type { FactCheckResult, GeneratedArticle } from "@/lib/ai-types";
 import { useNewsroom } from "@/components/admin/newsroom-provider";
+import { useWorkspace } from "@/components/admin/workspace-provider";
+import { matchKeywords, type WorkspaceConfig } from "@/lib/engine/workspace";
+import { loadWorkspaceConfig } from "@/lib/monitor-store";
 import { callApi } from "@/app/admin/api";
 import { runImport } from "@/components/admin/automation/import-runner";
 import { generatedToForm } from "@/app/admin/formState";
@@ -37,8 +40,10 @@ const PRIORITY_RANK: Record<string, number> = {
 
 export default function InboxView() {
   const { db, auth, requestEdit } = useNewsroom();
+  const { workspace } = useWorkspace();
 
   const [items, setItems] = useState<InboxDoc[] | null>(null);
+  const [wsConfig, setWsConfig] = useState<WorkspaceConfig | null>(null);
   const [filters, setFilters] = useState<InboxFilters>(DEFAULT_FILTERS);
   const [view, setView] = useState<"cards" | "table">("cards");
   const [refreshing, setRefreshing] = useState(false);
@@ -70,6 +75,12 @@ export default function InboxView() {
     load().catch(() => setItems([]));
   }, [load]);
 
+  // Cuvintele-cheie locale — pentru filtrarea itemelor vechi, fără etichete
+  useEffect(() => {
+    if (workspace !== "valcea" || wsConfig) return;
+    loadWorkspaceConfig(db).then(setWsConfig).catch(() => {});
+  }, [workspace, wsConfig, db]);
+
   const patchFilters = (patch: Partial<InboxFilters>) =>
     setFilters((f) => ({ ...f, ...patch }));
 
@@ -87,6 +98,15 @@ export default function InboxView() {
     const src = items ?? [];
     const needle = strip(filters.search.trim());
     return src.filter((i) => {
+      // Lentila de workspace: Monitor Vâlcea vede doar semnalele locale
+      if (workspace === "valcea") {
+        const tagged = i.workspaces?.includes("valcea");
+        const legacyMatch =
+          !i.workspaces &&
+          wsConfig &&
+          matchKeywords(`${i.titlu} ${i.descriere}`, wsConfig.keywords).length > 0;
+        if (!tagged && !legacyMatch) return false;
+      }
       if (filters.category && i.categorie !== filters.category) return false;
       if (filters.country && i.countryCode !== filters.country) return false;
       if (filters.source && i.sursa !== filters.source) return false;
@@ -104,7 +124,7 @@ export default function InboxView() {
       }
       return true;
     });
-  }, [items, filters, nowTs]);
+  }, [items, filters, nowTs, workspace, wsConfig]);
 
   useEffect(() => {
     // Menține selecția în interval când lista filtrată se schimbă

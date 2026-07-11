@@ -666,3 +666,104 @@ Reguli:
 
   return JSON.parse(textOf(response)) as import("@/lib/ai-types").EntityExtractionResult;
 }
+
+/* ── Monitor local: analiza semnalelor pentru un workspace ──── */
+
+const LOCAL_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          index: { type: "integer" },
+          relevance: { type: "integer" },
+          institutionScore: { type: "integer" },
+          publicInterest: { type: "integer" },
+          urgency: { type: "string", enum: ["low", "medium", "high", "critical"] },
+          priority: { type: "integer" },
+          commScore: { type: "integer" },
+          suggestion: { type: "string" },
+          institutions: { type: "array", items: { type: "string" } },
+          alertType: {
+            type: "string",
+            enum: [
+              "institution-announcement",
+              "emergency",
+              "infrastructure",
+              "funding",
+              "investment",
+              "negative-spike",
+              "public-interest",
+              "breaking-local",
+              "none",
+            ],
+          },
+        },
+        required: [
+          "index",
+          "relevance",
+          "institutionScore",
+          "publicInterest",
+          "urgency",
+          "priority",
+          "commScore",
+          "suggestion",
+          "institutions",
+          "alertType",
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+/**
+ * Analiza de inteligență locală a semnalelor (batch) — pentru un centru de
+ * monitorizare județean. Scoruri + tip de alertă + recomandare de comunicare.
+ */
+export async function analyzeLocalItems(
+  items: { titlu: string; descriere: string }[],
+  context: { region: string; institutions: string[] }
+): Promise<import("@/lib/ai-types").LocalAnalysisResult> {
+  const client = getClient();
+  const listing = items
+    .map(
+      (item, i) =>
+        `${i}. ${item.titlu}${item.descriere ? ` — ${item.descriere.slice(0, 250)}` : ""}`
+    )
+    .join("\n");
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 8000,
+    system: `Ești analistul unui centru de monitorizare și inteligență locală pentru ${context.region}. Nu ești redactor — evaluezi semnale pentru monitorizare, comunicare publică și decizie.
+
+Instituțiile monitorizate: ${context.institutions.join("; ")}.
+
+Pentru fiecare semnal întorci:
+- relevance (0-100): cât de direct privește ${context.region}. 90+ doar dacă subiectul e despre județ/localitățile lui; sub 30 dacă e doar o mențiune tangențială.
+- institutionScore (0-100): cât de implicate sunt instituțiile monitorizate (0 dacă niciuna).
+- institutions: numele EXACTE, din lista de mai sus, ale instituțiilor implicate explicit în text (listă goală dacă niciuna; nu deduce).
+- publicInterest (0-100): interesul public local estimat (sănătate, bani, siguranță, trafic → mare).
+- urgency: low / medium / high / critical (critical DOAR pentru pericol iminent asupra oamenilor).
+- priority (0-100): prioritatea de monitorizare, agregând relevanța, urgența și interesul public.
+- commScore (0-100): cât de oportună ar fi o comunicare oficială pe subiect.
+- suggestion: DOAR dacă commScore ≥ 60 — o recomandare de comunicare de o frază, formulată explicit ca sugestie („Subiectul merită...", „Instituția X ar putea..."). Altfel string gol.
+- alertType: tipul de alertă dacă semnalul justifică una, altfel "none":
+  institution-announcement (anunț oficial al unei instituții monitorizate), emergency (urgență/pericol), infrastructure (avarii, drumuri, utilități), funding (fonduri/finanțări accesibile local), investment (investiție majoră), negative-spike (val de presă negativă despre o instituție/localitate), public-interest (interes public neobișnuit de mare), breaking-local (eveniment local major în desfășurare).
+
+Reguli stricte: evaluezi DOAR pe baza textului primit — nu inventa fapte, nu presupune implicarea vreunei instituții. Recomandările sunt sugestii, nu fapte. Fiecare index apare exact o dată.`,
+    output_config: {
+      format: { type: "json_schema", schema: LOCAL_SCHEMA },
+    },
+    messages: [
+      { role: "user", content: `Analizează aceste semnale:\n\n${listing}` },
+    ],
+  }, { timeout: 150_000, maxRetries: 1 });
+
+  return JSON.parse(textOf(response)) as import("@/lib/ai-types").LocalAnalysisResult;
+}

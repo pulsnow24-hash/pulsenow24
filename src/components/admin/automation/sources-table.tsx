@@ -24,6 +24,10 @@ import {
   type RssSource,
 } from "@/lib/engine/sources";
 import {
+  SOURCE_KIND_LABELS,
+  sourceSyncMode,
+} from "@/lib/engine/workspace";
+import {
   faviconUrl,
   countryFlag,
   relativeTime,
@@ -105,6 +109,14 @@ export default function SourcesTable({
                           <ShieldCheck className="size-3 shrink-0 text-emerald-500" />
                         )}
                         {s.blocked && <Ban className="size-3 shrink-0 text-red-500" />}
+                        {sourceSyncMode(s.kind ?? "rss") === "connector" && (
+                          <span
+                            className="shrink-0 rounded border border-amber-500/40 px-1 py-px font-mono text-[9px] uppercase tracking-wide text-amber-500"
+                            title={`${SOURCE_KIND_LABELS[s.kind ?? "rss"]} — nu se sincronizează automat până la conectarea unui conector dedicat`}
+                          >
+                            Conector necesar
+                          </span>
+                        )}
                       </span>
                       <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
                         {countryFlag(s.countryCode)} {s.countryCode} · P{s.priority}

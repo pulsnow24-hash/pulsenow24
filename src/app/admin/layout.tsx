@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { NewsroomProvider } from "@/components/admin/newsroom-provider";
+import { WorkspaceProvider } from "@/components/admin/workspace-provider";
 import AppShell from "@/components/admin/app-shell";
 
 export const metadata: Metadata = {
@@ -14,7 +15,9 @@ export default function AdminLayout({
 }) {
   return (
     <NewsroomProvider>
-      <AppShell>{children}</AppShell>
+      <WorkspaceProvider>
+        <AppShell>{children}</AppShell>
+      </WorkspaceProvider>
     </NewsroomProvider>
   );
 }
