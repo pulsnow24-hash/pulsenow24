@@ -768,9 +768,9 @@ Reguli stricte: evaluezi DOAR pe baza textului primit — nu inventa fapte, nu p
   return JSON.parse(textOf(response)) as import("@/lib/ai-types").LocalAnalysisResult;
 }
 
-/* ── Monitor local: contradicții între sursele unui story ───── */
+/* ── Monitor local: analiza bogată de consistență între surse ── */
 
-const CONFLICT_SCHEMA = {
+const CONSISTENCY_SCHEMA = {
   type: "object",
   properties: {
     items: {
@@ -779,10 +779,13 @@ const CONFLICT_SCHEMA = {
         type: "object",
         properties: {
           index: { type: "integer" },
-          conflicting: { type: "boolean" },
+          verdict: {
+            type: "string",
+            enum: ["consistent", "complementary", "update", "contradiction"],
+          },
           note: { type: "string" },
         },
-        required: ["index", "conflicting", "note"],
+        required: ["index", "verdict", "note"],
         additionalProperties: false,
       },
     },
@@ -791,41 +794,62 @@ const CONFLICT_SCHEMA = {
   additionalProperties: false,
 };
 
+export interface ConsistencyStoryInput {
+  title: string;
+  /** Rezumatul AI al story-ului */
+  summary: string;
+  /** Entitățile extrase (persoane, locuri, organizații, teme) */
+  entities: string[];
+  /** Semnalele în ordine cronologică, cu momentul publicării */
+  signals: { sursa: string; titlu: string; at: string; descriere?: string }[];
+}
+
 /**
- * Verifică dacă relatările surselor unui story se CONTRAZIC factual
- * (cifre diferite, versiuni opuse, dezmințiri). Nicio sursă nu e tratată
- * ca autoritate — se compară doar afirmațiile între ele.
+ * Compară relatările surselor unui story: rezumate, entități, cifre-cheie
+ * (bani, victime, date, cantități), locuri și organizații. Distinge strict:
+ * contradicție / informații complementare / actualizări în timp (evoluție).
+ * Nicio sursă nu e tratată ca autoritate.
  */
-export async function checkStoryConflicts(
-  stories: { title: string; signals: { sursa: string; titlu: string }[] }[]
-): Promise<import("@/lib/ai-types").StoryConflictResult> {
+export async function checkStoryConsistency(
+  stories: ConsistencyStoryInput[]
+): Promise<import("@/lib/ai-types").ConsistencyResult> {
   const client = getClient();
   const listing = stories
-    .map(
-      (s, i) =>
-        `${i}. Subiect: ${s.title}\n${s.signals
-          .map((sig) => `   - [${sig.sursa}] ${sig.titlu}`)
-          .join("\n")}`
-    )
+    .map((s, i) => {
+      const signals = [...s.signals]
+        .sort((a, b) => a.at.localeCompare(b.at))
+        .map(
+          (sig) =>
+            `   - [${sig.at.slice(0, 16).replace("T", " ")}] [${sig.sursa}] ${sig.titlu}${sig.descriere ? ` — ${sig.descriere.slice(0, 220)}` : ""}`
+        )
+        .join("\n");
+      return `${i}. Subiect: ${s.title}\n   Rezumat: ${s.summary}\n   Entități: ${s.entities.join(", ") || "—"}\n   Relatări (cronologic):\n${signals}`;
+    })
     .join("\n\n");
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 4000,
-    system: `Compari relatările mai multor surse despre același subiect, pentru un centru de monitorizare. Nicio sursă nu e considerată automat corectă.
+    max_tokens: 6000,
+    system: `Analizezi consistența relatărilor mai multor surse despre același subiect, pentru un centru de monitorizare. Nicio sursă nu e considerată automat corectă.
 
-Pentru fiecare subiect răspunzi:
-- conflicting: true DOAR dacă relatările se contrazic factual (cifre incompatibile, versiuni opuse ale evenimentului, dezmințiri explicite). Unghiuri diferite sau detalii complementare NU sunt contradicții.
-- note: dacă conflicting=true, o frază care numește exact contradicția și sursele implicate; altfel string gol.
+Compari între relatări: cifrele-cheie (sume de bani, victime/răniți, date calendaristice, cantități), locurile, organizațiile și persoanele implicate, și versiunea evenimentului din fiecare relatare.
 
-Nu inventa contradicții. Evaluezi DOAR titlurile primite. Fiecare index apare exact o dată.`,
+Verdict per subiect — alege EXACT unul:
+- "contradiction": relatările afirmă fapte INCOMPATIBILE despre același moment (cifre care nu pot fi ambele adevărate, versiuni opuse, dezmințiri explicite).
+- "update": relatările descriu STADII DIFERITE ale unui eveniment în desfășurare — o secvență temporală coerentă, NU un conflict. Exemplu: 08:00 „drum închis" → 10:30 „o bandă redeschisă" → 13:00 „trafic normalizat" = update, nu contradicție. Folosește momentele publicării pentru a judeca ordinea.
+- "complementary": relatările acoperă detalii/unghiuri diferite care se completează fără să se contrazică.
+- "consistent": relatările spun în esență același lucru.
+
+- note: pentru "contradiction" — o frază care numește exact faptele incompatibile și sursele; pentru "update" — o frază despre cum a evoluat; altfel string gol.
+
+Reguli stricte: nu inventa contradicții; o cifră care CREȘTE în timp într-un eveniment în desfășurare (victime, pagube) e de regulă update, nu contradicție — semnalează contradicție doar dacă relatările se referă clar la același moment. Evaluezi DOAR textul primit. Fiecare index apare exact o dată.`,
     output_config: {
-      format: { type: "json_schema", schema: CONFLICT_SCHEMA },
+      format: { type: "json_schema", schema: CONSISTENCY_SCHEMA },
     },
     messages: [
-      { role: "user", content: `Compară relatările:\n\n${listing}` },
+      { role: "user", content: `Analizează consistența relatărilor:\n\n${listing}` },
     ],
-  }, { timeout: 120_000, maxRetries: 1 });
+  }, { timeout: 150_000, maxRetries: 1 });
 
-  return JSON.parse(textOf(response)) as import("@/lib/ai-types").StoryConflictResult;
+  return JSON.parse(textOf(response)) as import("@/lib/ai-types").ConsistencyResult;
 }

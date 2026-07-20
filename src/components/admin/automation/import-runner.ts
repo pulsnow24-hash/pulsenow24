@@ -41,6 +41,7 @@ import {
   applyHealth,
   isDue,
   newSource,
+  trustScore,
   type AutomationConfig,
   type ImportLog,
   type RssSource,
@@ -50,6 +51,7 @@ import {
   ALERT_TYPES,
   computeStoryCoverage,
   deriveAlerts,
+  verdictToConflict,
   itemWorkspaces,
   matchKeywords,
   sourceSyncMode,
@@ -63,7 +65,12 @@ import {
   saveAlert,
   saveStoryCoverage,
 } from "@/lib/monitor-store";
-import type { LocalAnalysisResult, StoryConflictResult } from "@/lib/ai-types";
+import type {
+  ConsistencyRaw,
+  ConsistencyResult,
+  LocalAnalysisResult,
+} from "@/lib/ai-types";
+import { computeConfidence } from "@/lib/engine/confidence";
 
 export async function loadSources(db: Firestore): Promise<RssSource[]> {
   const snap = await getDocs(collection(db, "sources"));
@@ -477,9 +484,9 @@ export async function runImport(opts: {
   }
 
   // ── Acoperirea story-urilor locale (source-neutrality, fail-safe) ──
-  // Pentru story-urile locale atinse: numărul de surse independente,
-  // clase (oficial/presă/social), coroborare + verificarea AI a
-  // contradicțiilor pentru cele multi-sursă. Nicio sursă nu e autoritate.
+  // Pentru story-urile locale atinse: surse independente + clase, analiza
+  // BOGATĂ de consistență (rezumate, entități, cifre-cheie, cronologie —
+  // evoluția în timp NU e conflict) și scorul Confidence Engine.
   {
     const localStoryIds = new Set(
       [...localByIndex.keys()]
@@ -500,32 +507,56 @@ export async function runImport(opts: {
           ])
         );
 
-        // Contradicții: doar story-urile cu ≥2 surse independente
-        const conflictById = new Map<string, { conflicting: boolean; note: string }>();
+        // Descrierile semnalelor proaspete, pe story (pentru comparația bogată)
+        const freshByStory = new Map<string, Map<string, string>>();
+        for (const [i, storyId] of storyIdByIndex) {
+          const item = fresh[i];
+          if (!item?.descriere) continue;
+          if (!freshByStory.has(storyId)) freshByStory.set(storyId, new Map());
+          freshByStory.get(storyId)!.set(item.titlu, item.descriere);
+        }
+
+        // Consistență: doar story-urile cu ≥2 surse independente
+        const verdictById = new Map<
+          string,
+          { verdict: ConsistencyRaw["verdict"]; note: string }
+        >();
         const multi = touched.filter(
           (s) => (coverageById.get(s.id)?.independentSources ?? 0) >= 2
         );
         if (multi.length > 0) {
           const payload = multi.map((s) => ({
             title: s.title,
+            summary: s.summary,
+            entities: [
+              ...s.entities,
+              ...s.people,
+              ...s.locations,
+              ...s.organizations,
+            ],
             signals: s.timeline
               .filter((e) => e.type === "signal")
               .slice(-8)
-              .map((e) => ({ sursa: e.source ?? "Sursă", titlu: e.title })),
+              .map((e) => ({
+                sursa: e.source ?? "Sursă",
+                titlu: e.title,
+                at: e.at,
+                descriere: freshByStory.get(s.id)?.get(e.title),
+              })),
           }));
-          const res = await phase("story-conflicts", 130_000, () =>
-            callApi<StoryConflictResult>(
+          const res = await phase("story-consistency", 160_000, () =>
+            callApi<ConsistencyResult>(
               auth,
               "/api/monitor/conflicts",
               { stories: payload },
-              120_000
+              150_000
             )
           );
           res.items.forEach((r) => {
             const story = multi[r.index];
             if (story) {
-              conflictById.set(story.id, {
-                conflicting: r.conflicting,
+              verdictById.set(story.id, {
+                verdict: r.verdict,
                 note: r.note?.trim() ?? "",
               });
             }
@@ -536,17 +567,30 @@ export async function runImport(opts: {
           Promise.all(
             touched.map((s) => {
               const cov = coverageById.get(s.id)!;
-              const conflict = conflictById.get(s.id);
+              const v = verdictById.get(s.id);
+              // Scorurile de trust ale surselor story-ului, din registru
+              const byName = new Map(
+                allSources.map((src) => [src.name, src])
+              );
+              const sourceTrust = s.sources
+                .map((name) => byName.get(name))
+                .filter((src): src is RssSource => !!src)
+                .map((src) => trustScore(src));
+              const confidence = computeConfidence({
+                coverage: cov,
+                sourceTrust,
+                verdict: v?.verdict ?? "unchecked",
+                lastUpdated: s.lastUpdated,
+              });
               return saveStoryCoverage(db, {
                 storyId: s.id,
                 workspace: "valcea",
                 ...cov,
-                conflict: conflict
-                  ? conflict.conflicting
-                    ? "conflicting"
-                    : "consistent"
-                  : "unchecked",
-                ...(conflict?.note ? { conflictNote: conflict.note } : {}),
+                conflict: verdictToConflict(v?.verdict),
+                ...(v?.note ? { conflictNote: v.note } : {}),
+                ...(v ? { consistencyDetail: v.verdict } : {}),
+                confidence: confidence.score,
+                confidenceLabel: confidence.label,
                 updatedAt: now,
               });
             })

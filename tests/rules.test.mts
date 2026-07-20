@@ -210,6 +210,10 @@ await test("public NU scrie story_coverage", () => assertFails(setDoc(doc(anon, 
 await test("redacția scrie acoperire validă", () => assertSucceeds(setDoc(doc(editor, "story_coverage", "s2"), validCoverage)));
 await test("respinge conflict invalid", () => assertFails(setDoc(doc(editor, "story_coverage", "bad1"), { ...validCoverage, conflict: "maybe" })));
 await test("respinge diversityScore >100", () => assertFails(setDoc(doc(editor, "story_coverage", "bad2"), { ...validCoverage, diversityScore: 150 })));
+await test("acceptă verdictul + confidence (opționale)", () => assertSucceeds(setDoc(doc(editor, "story_coverage", "s3"), { ...validCoverage, consistencyDetail: "update", confidence: 78, confidenceLabel: "high" })));
+await test("respinge verdict necunoscut", () => assertFails(setDoc(doc(editor, "story_coverage", "bad3"), { ...validCoverage, consistencyDetail: "maybe" })));
+await test("respinge confidence >100", () => assertFails(setDoc(doc(editor, "story_coverage", "bad4"), { ...validCoverage, confidence: 150 })));
+await test("respinge confidenceLabel invalid", () => assertFails(setDoc(doc(editor, "story_coverage", "bad5"), { ...validCoverage, confidenceLabel: "huge" })));
 
 console.log("\nCONFIG WORKSPACE (monitor-valcea):");
 await test("redacția scrie config/monitor-valcea", () =>

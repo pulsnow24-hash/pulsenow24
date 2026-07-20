@@ -523,7 +523,36 @@ export interface StoryCoverageDoc extends StoryCoverage {
   /** unchecked = fără analiză AI încă; consistent/conflicting = verificat */
   conflict: "unchecked" | "consistent" | "conflicting";
   conflictNote?: string;
+  /**
+   * Verdictul analizei bogate de consistență:
+   * - consistent    → relatările spun același lucru
+   * - complementary → detalii diferite care se completează
+   * - update        → poveste în EVOLUȚIE (secvență temporală, nu conflict)
+   * - contradiction → fapte incompatibile (cifre, versiuni, dezmințiri)
+   */
+  consistencyDetail?: "consistent" | "complementary" | "update" | "contradiction";
+  /** Scorul Confidence Engine (0-100) + eticheta, la momentul updatedAt */
+  confidence?: number;
+  confidenceLabel?: "high" | "medium" | "low";
   updatedAt: string;
+}
+
+export const CONSISTENCY_LABELS: Record<
+  NonNullable<StoryCoverageDoc["consistencyDetail"]>,
+  string
+> = {
+  consistent: "Relatări concordante",
+  complementary: "Informații complementare",
+  update: "Poveste în evoluție",
+  contradiction: "Surse în contradicție",
+};
+
+/** Mapează verdictul bogat pe câmpul validat `conflict` (compatibil cu regulile live). */
+export function verdictToConflict(
+  verdict: StoryCoverageDoc["consistencyDetail"] | undefined
+): StoryCoverageDoc["conflict"] {
+  if (!verdict) return "unchecked";
+  return verdict === "contradiction" ? "conflicting" : "consistent";
 }
 
 /* ── Lacune de acoperire ───────────────────────────────────── */

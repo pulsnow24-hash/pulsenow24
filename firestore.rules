@@ -143,6 +143,9 @@ service cloud.firestore {
         && d.corroborated is bool && d.singleSource is bool
         && scoreOk(d.diversityScore)
         && d.conflict in ['unchecked','consistent','conflicting']
+        && (!('consistencyDetail' in d) || d.consistencyDetail in ['consistent','complementary','update','contradiction'])
+        && (!('confidence' in d) || scoreOk(d.confidence))
+        && (!('confidenceLabel' in d) || d.confidenceLabel in ['high','medium','low'])
         && d.updatedAt is string;
     }
     match /story_coverage/{id} {

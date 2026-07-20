@@ -43,10 +43,15 @@ import {
   setAlertStatus,
 } from "@/lib/monitor-store";
 import { normalizeAlias, type Entity } from "@/lib/engine/entity";
-import { newSource, type RssSource } from "@/lib/engine/sources";
+import {
+  CONFIDENCE_LABELS,
+  computeConfidence,
+} from "@/lib/engine/confidence";
+import { newSource, trustScore, type RssSource } from "@/lib/engine/sources";
 import type { Story } from "@/lib/engine/story";
 import {
   ALERT_TYPE_LABELS,
+  CONSISTENCY_LABELS,
   SINGLE_SOURCE_LABEL,
   SOURCE_CATEGORIES,
   SOURCE_CATEGORY_LABELS,
@@ -472,6 +477,16 @@ export default function MonitorDashboard() {
               {view.localStories.slice(0, 6).map((s) => {
                 const cov = computeStoryCoverage(s.sources, data.sources);
                 const conflict = data.coverage?.get(s.id);
+                const byName = new Map(data.sources.map((x) => [x.name, x]));
+                const confidence = computeConfidence({
+                  coverage: cov,
+                  sourceTrust: s.sources
+                    .map((n) => byName.get(n))
+                    .filter((x): x is RssSource => !!x)
+                    .map((x) => trustScore(x)),
+                  verdict: conflict?.consistencyDetail ?? "unchecked",
+                  lastUpdated: s.lastUpdated,
+                });
                 return (
                   <div key={s.id} className="text-[12.5px]">
                     <div className="flex items-center gap-2">
@@ -504,7 +519,21 @@ export default function MonitorDashboard() {
                         </span>
                       )}
                       {cov.corroborated &&
-                        (conflict?.conflict === "conflicting" ? (
+                        (conflict?.consistencyDetail ? (
+                          <span
+                            className={cn(
+                              "rounded border px-1 py-px uppercase",
+                              conflict.consistencyDetail === "contradiction"
+                                ? "border-red-500/40 text-red-400"
+                                : conflict.consistencyDetail === "update"
+                                  ? "border-sky-500/40 text-sky-400"
+                                  : "border-border text-muted-foreground"
+                            )}
+                            title={conflict.conflictNote}
+                          >
+                            {CONSISTENCY_LABELS[conflict.consistencyDetail]}
+                          </span>
+                        ) : conflict?.conflict === "conflicting" ? (
                           <span
                             className="rounded border border-red-500/40 px-1 py-px uppercase text-red-400"
                             title={conflict.conflictNote}
@@ -520,6 +549,19 @@ export default function MonitorDashboard() {
                             Contradicții: neverificat
                           </span>
                         ))}
+                      <span
+                        className={cn(
+                          "rounded px-1 py-px font-medium uppercase",
+                          confidence.label === "high"
+                            ? "bg-emerald-500/10 text-emerald-500"
+                            : confidence.label === "medium"
+                              ? "bg-amber-500/10 text-amber-500"
+                              : "bg-red-500/10 text-red-400"
+                        )}
+                        title={`Surse: ${confidence.parts.sources} · Diversitate: ${confidence.parts.diversity} · Oficiale: ${confidence.parts.official} · Trust: ${confidence.parts.trust} · Consistență: ${confidence.parts.consistency} · Prospețime: ${confidence.parts.freshness}`}
+                      >
+                        {CONFIDENCE_LABELS[confidence.label]} · {confidence.score}
+                      </span>
                     </div>
                   </div>
                 );

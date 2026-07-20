@@ -189,3 +189,15 @@ export interface StoryConflictRaw {
 export interface StoryConflictResult {
   items: StoryConflictRaw[];
 }
+
+/* ── Monitor local: analiza bogată de consistență ──────────── */
+
+export interface ConsistencyRaw {
+  index: number;
+  verdict: "consistent" | "complementary" | "update" | "contradiction";
+  note: string;
+}
+
+export interface ConsistencyResult {
+  items: ConsistencyRaw[];
+}
