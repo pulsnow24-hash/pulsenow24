@@ -1,0 +1,119 @@
+rules_version = '2';
+
+// ═══════════════════════════════════════════════════════════════════
+// PulsNow24 — reguli Firestore (versionate în repo)
+//
+// Modelul de autorizare actual: un singur nivel — conturile de redacție
+// create manual în Firebase Auth (nu există sign-up public și nu există
+// încă roluri/custom claims). Prin urmare `isNewsroom()` = autentificat.
+//
+// NOTĂ DE ARHITECTURĂ (câmpuri gestionate de sistem):
+// Scorurile, timeline-ul și datele agregate ale Story-urilor sunt scrise
+// de pipeline-ul de import, care azi rulează în clientul autentificat al
+// redacției — acesta ESTE fluxul de încredere curent. Când va exista un
+// scriitor server-side (Admin SDK ocolește oricum regulile), scrierile pe
+// /stories pot fi restrânse la server schimbând o singură funcție aici.
+// Până atunci, regulile validează strict tipurile/intervalele acestor
+// câmpuri, iar publicul nu poate scrie nimic, nicăieri.
+// ═══════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isNewsroom() {
+      return request.auth != null;
+    }
+
+    // ── Articole: citite de site-ul public, scrise de redacție ──
+    match /articles/{id} {
+      allow read: if true;
+      allow write: if isNewsroom();
+    }
+
+    // ── Config: doar tickerul e public (site-ul îl afișează) ──
+    match /config/ticker {
+      allow read: if true;
+      allow write: if isNewsroom();
+    }
+    match /config/{id} {
+      allow read, write: if isNewsroom();
+    }
+
+    // ── Fluxul intern al redacției: complet privat ──
+    match /inbox/{id} {
+      allow read, write: if isNewsroom();
+    }
+    match /sources/{id} {
+      allow read, write: if isNewsroom();
+    }
+    match /import_logs/{id} {
+      allow read, write: if isNewsroom();
+    }
+
+    // ── Stories: activul central ──
+    // Citire publică (necesară viitoarelor pagini Live Story / Timeline /
+    // Breaking / Entitate). Scriere doar de redacție, cu validare de schemă.
+    function scoreOk(v) {
+      return v is number && v >= 0 && v <= 100;
+    }
+    function validStory() {
+      let d = request.resource.data;
+      return d.keys().hasOnly([
+          'title', 'status', 'summary', 'categorie', 'timeline',
+          'articleIds', 'sources', 'signalCount',
+          'entities', 'people', 'locations', 'organizations',
+          'trustScore', 'importanceScore', 'breakingScore', 'localityScore',
+          'countryCode', 'coverImage', 'createdAt', 'lastUpdated'
+        ])
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 200
+        && d.status in ['developing', 'breaking', 'confirmed', 'archived']
+        && d.summary is string && d.summary.size() <= 2000
+        && d.categorie is string
+        && d.timeline is list && d.timeline.size() <= 100
+        && d.articleIds is list
+        && d.sources is list
+        && d.signalCount is number && d.signalCount >= 0
+        && d.entities is list && d.people is list
+        && d.locations is list && d.organizations is list
+        && scoreOk(d.trustScore)
+        && scoreOk(d.importanceScore)
+        && scoreOk(d.breakingScore)
+        && scoreOk(d.localityScore)
+        && d.countryCode is string && d.countryCode.size() <= 2
+        && (!('coverImage' in d) || d.coverImage is string)
+        && d.createdAt is string && d.lastUpdated is string;
+    }
+    match /stories/{id} {
+      allow read: if true;
+      allow create, update: if isNewsroom() && validStory();
+      allow delete: if isNewsroom();
+    }
+
+    // ── Entities: noduri de cunoaștere reutilizabile ──
+    // Citire publică (viitoarele pagini de entitate). Scriere doar redacție,
+    // cu validare de tipuri pe câmpurile agregate.
+    function validEntity() {
+      let d = request.resource.data;
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 120
+        && d.type in ['person', 'organization', 'institution', 'company',
+                      'party', 'country', 'county', 'city', 'location',
+                      'product', 'crypto', 'law', 'event']
+        && d.aliases is list && d.aliases.size() <= 30
+        && d.mentionCount is number && d.mentionCount >= 0
+        && d.relatedStoryIds is list
+        && d.relatedArticleIds is list
+        && d.relatedEntityIds is list
+        && scoreOk(d.trendScore)
+        && scoreOk(d.importanceScore)
+        && d.firstSeen is string && d.lastSeen is string
+        && d.dailyMentions is map;
+    }
+    match /entities/{id} {
+      allow read: if true;
+      // request.resource.data e documentul rezultat (merged), deci validarea
+      // acoperă și update-urile parțiale (ex: arrayUnion pe relatedArticleIds)
+      allow create, update: if isNewsroom() && validEntity();
+      allow delete: if isNewsroom();
+    }
+  }
+}
