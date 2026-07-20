@@ -146,6 +146,7 @@ service cloud.firestore {
         && (!('consistencyDetail' in d) || d.consistencyDetail in ['consistent','complementary','update','contradiction'])
         && (!('confidence' in d) || scoreOk(d.confidence))
         && (!('confidenceLabel' in d) || d.confidenceLabel in ['high','medium','low'])
+        && (!('mergeSuggestion' in d) || (d.mergeSuggestion is map && d.mergeSuggestion.status in ['open','dismissed']))
         && d.updatedAt is string;
     }
     match /story_coverage/{id} {

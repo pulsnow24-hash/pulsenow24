@@ -201,3 +201,15 @@ export interface ConsistencyRaw {
 export interface ConsistencyResult {
   items: ConsistencyRaw[];
 }
+
+/* ── Monitor local: verdictul de unire a story-urilor ──────── */
+
+export interface MergeVerdictRaw {
+  index: number;
+  sameEvent: boolean;
+  reason: string;
+}
+
+export interface MergeVerdictResult {
+  items: MergeVerdictRaw[];
+}

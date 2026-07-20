@@ -58,9 +58,11 @@ import {
   type AlertType,
   type LocalAnalysis,
   type MonitorAlert,
+  type StoryCoverageDoc,
   type Workspace,
 } from "@/lib/engine/workspace";
 import {
+  loadStoryCoverage,
   loadWorkspaceConfig,
   saveAlert,
   saveStoryCoverage,
@@ -69,7 +71,9 @@ import type {
   ConsistencyRaw,
   ConsistencyResult,
   LocalAnalysisResult,
+  MergeVerdictResult,
 } from "@/lib/ai-types";
+import { findMergeCandidates } from "@/lib/engine/context";
 import { computeConfidence } from "@/lib/engine/confidence";
 
 export async function loadSources(db: Firestore): Promise<RssSource[]> {
@@ -599,6 +603,94 @@ export async function runImport(opts: {
       } catch (err) {
         feedErrors.push(
           `Monitor local: acoperire — ${err instanceof Error ? err.message : "scriere eșuată"}`
+        );
+      }
+
+      // ── Story linking: sugestii de unire (fail-safe, editorul decide) ──
+      try {
+        const linkCfg = await phase("merge-config", 15_000, () =>
+          loadWorkspaceConfig(db)
+        );
+        const activeLocal = [...storiesById.values()].filter(
+          (s) =>
+            s.status !== "archived" &&
+            matchKeywords(
+              [s.title, s.summary, ...s.entities, ...s.locations].join(" "),
+              linkCfg.keywords
+            ).length > 0
+        );
+        const candidates = findMergeCandidates(activeLocal);
+        if (candidates.length > 0) {
+          const existingCov = await phase("merge-index", 30_000, () =>
+            loadStoryCoverage(db, "valcea")
+          );
+          // Nu re-propunem perechile respinse deja de editor
+          const fresh_pairs = candidates.filter((c) => {
+            const covA = existingCov.get(c.a.id)?.mergeSuggestion;
+            const covB = existingCov.get(c.b.id)?.mergeSuggestion;
+            const pairIds = new Set([c.a.id, c.b.id]);
+            const dismissed =
+              (covA?.status === "dismissed" && pairIds.has(covA.storyId)) ||
+              (covB?.status === "dismissed" && pairIds.has(covB.storyId));
+            const open =
+              (covA?.status === "open" && pairIds.has(covA.storyId)) ||
+              (covB?.status === "open" && pairIds.has(covB.storyId));
+            return !dismissed && !open;
+          });
+          if (fresh_pairs.length > 0) {
+            const verdicts = await phase("story-links", 130_000, () =>
+              callApi<MergeVerdictResult>(
+                auth,
+                "/api/monitor/merge",
+                {
+                  pairs: fresh_pairs.map((c) => ({
+                    a: {
+                      title: c.a.title,
+                      summary: c.a.summary,
+                      entities: [...c.a.entities, ...c.a.people, ...c.a.locations],
+                    },
+                    b: {
+                      title: c.b.title,
+                      summary: c.b.summary,
+                      entities: [...c.b.entities, ...c.b.people, ...c.b.locations],
+                    },
+                  })),
+                },
+                120_000
+              )
+            );
+            const now2 = new Date().toISOString();
+            for (const v of verdicts.items) {
+              const c = fresh_pairs[v.index];
+              if (!c || !v.sameEvent) continue;
+              // Sugestia stă pe story-ul mai NOU: „unește-l cu cel mai vechi"
+              const [newer, older] =
+                c.a.createdAt > c.b.createdAt ? [c.a, c.b] : [c.b, c.a];
+              const cov =
+                existingCov.get(newer.id) ??
+                ({
+                  storyId: newer.id,
+                  workspace: "valcea" as const,
+                  ...computeStoryCoverage(newer.sources, allSources),
+                  conflict: "unchecked" as const,
+                  updatedAt: now2,
+                } satisfies StoryCoverageDoc);
+              await saveStoryCoverage(db, {
+                ...cov,
+                mergeSuggestion: {
+                  storyId: older.id,
+                  storyTitle: older.title,
+                  reason: v.reason,
+                  status: "open",
+                },
+                updatedAt: now2,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        feedErrors.push(
+          `Monitor local: linking — ${err instanceof Error ? err.message : "sugestii eșuate"}`
         );
       }
     }

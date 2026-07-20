@@ -72,6 +72,10 @@ import {
   normalizeInboxDoc,
   type InboxDoc,
 } from "@/components/admin/inbox/helpers";
+import {
+  EntityContextSheet,
+  StoryContextSheet,
+} from "./context-sheets";
 
 /* ── Card generic (aceleași idiomuri ca dashboard-ul național) ── */
 
@@ -142,6 +146,8 @@ export default function MonitorDashboard() {
   const [cfg, setCfg] = useState<WorkspaceConfig | null>(null);
   const [newKeyword, setNewKeyword] = useState("");
   const [newInstitution, setNewInstitution] = useState("");
+  const [contextEntity, setContextEntity] = useState<Entity | null>(null);
+  const [contextStory, setContextStory] = useState<Story | null>(null);
 
   const reload = useCallback(async () => {
     const [cfgRes, alertsRes, entitiesRes, storiesRes, sourcesRes, inboxRes, covRes] =
@@ -490,7 +496,12 @@ export default function MonitorDashboard() {
                 return (
                   <div key={s.id} className="text-[12.5px]">
                     <div className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                      <button
+                        onClick={() => setContextStory(s)}
+                        className="min-w-0 flex-1 truncate text-left transition-colors hover:text-primary"
+                      >
+                        {s.title}
+                      </button>
                       <span
                         className={cn(
                           "shrink-0 rounded px-1 font-mono text-[9px] uppercase",
@@ -616,7 +627,12 @@ export default function MonitorDashboard() {
             <div className="space-y-1">
               {view.institutions.slice(0, 8).map((e) => (
                 <div key={e.id} className="flex items-center gap-2 text-[12.5px]">
-                  <span className="min-w-0 flex-1 truncate">{e.name}</span>
+                  <button
+                    onClick={() => setContextEntity(e)}
+                    className="min-w-0 flex-1 truncate text-left transition-colors hover:text-primary"
+                  >
+                    {e.name}
+                  </button>
                   {e.trendScore >= 60 && (
                     <TrendingUp className="size-3 shrink-0 text-emerald-500" />
                   )}
@@ -640,7 +656,12 @@ export default function MonitorDashboard() {
             <div className="space-y-1">
               {view.localities.slice(0, 8).map((e) => (
                 <div key={e.id} className="flex items-center gap-2 text-[12.5px]">
-                  <span className="min-w-0 flex-1 truncate">{e.name}</span>
+                  <button
+                    onClick={() => setContextEntity(e)}
+                    className="min-w-0 flex-1 truncate text-left transition-colors hover:text-primary"
+                  >
+                    {e.name}
+                  </button>
                   {e.trendScore >= 60 && (
                     <TrendingUp className="size-3 shrink-0 text-emerald-500" />
                   )}
@@ -939,6 +960,33 @@ export default function MonitorDashboard() {
           </form>
         </Card>
       </div>
+
+      <EntityContextSheet
+        entity={contextEntity}
+        entities={data.entities}
+        stories={data.stories}
+        alerts={data.alerts}
+        onClose={() => setContextEntity(null)}
+        onOpenStory={(s) => {
+          setContextEntity(null);
+          setContextStory(s);
+        }}
+      />
+      <StoryContextSheet
+        story={contextStory}
+        stories={data.stories}
+        entities={data.entities}
+        sources={data.sources}
+        coverage={data.coverage}
+        db={db}
+        onClose={() => setContextStory(null)}
+        onOpenStory={(s) => setContextStory(s)}
+        onOpenEntity={(e) => {
+          setContextStory(null);
+          setContextEntity(e);
+        }}
+        onChanged={() => reload().catch(() => {})}
+      />
     </div>
   );
 }

@@ -214,6 +214,8 @@ await test("acceptă verdictul + confidence (opționale)", () => assertSucceeds(
 await test("respinge verdict necunoscut", () => assertFails(setDoc(doc(editor, "story_coverage", "bad3"), { ...validCoverage, consistencyDetail: "maybe" })));
 await test("respinge confidence >100", () => assertFails(setDoc(doc(editor, "story_coverage", "bad4"), { ...validCoverage, confidence: 150 })));
 await test("respinge confidenceLabel invalid", () => assertFails(setDoc(doc(editor, "story_coverage", "bad5"), { ...validCoverage, confidenceLabel: "huge" })));
+await test("acceptă mergeSuggestion (opțional)", () => assertSucceeds(setDoc(doc(editor, "story_coverage", "s4"), { ...validCoverage, mergeSuggestion: { storyId: "sX", storyTitle: "T", reason: "r", status: "open" } })));
+await test("respinge mergeSuggestion.status invalid", () => assertFails(setDoc(doc(editor, "story_coverage", "bad6"), { ...validCoverage, mergeSuggestion: { storyId: "sX", storyTitle: "T", reason: "r", status: "maybe" } })));
 
 console.log("\nCONFIG WORKSPACE (monitor-valcea):");
 await test("redacția scrie config/monitor-valcea", () =>

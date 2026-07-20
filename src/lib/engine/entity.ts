@@ -56,6 +56,24 @@ export interface Entity {
   importanceScore: number;
   /** Mențiuni pe zi (yyyy-mm-dd), păstrate ultimele ~14 zile, pentru trend */
   dailyMentions: Record<string, number>;
+  /** Memorie pe termen lung: mențiuni pe lună (yyyy-mm), ultimele 24 luni */
+  monthlyMentions?: Record<string, number>;
+  /** Graful de relații ponderat: entityId → forța legăturii (cu dovezi) */
+  relations?: Record<string, EntityRelation>;
+}
+
+/**
+ * O relație între două entități, construită DIN DOVEZI: fiecare co-apariție
+ * într-un semnal o întărește; trecerea timpului o slăbește (decay).
+ * Explicabil: weight = f(count, recență), nimic ascuns.
+ */
+export interface EntityRelation {
+  /** Câte semnale au menționat entitățile împreună */
+  count: number;
+  /** 0-100 — forța curentă (întărită de dovezi, slăbită de timp) */
+  weight: number;
+  firstSeen: string;
+  lastSeen: string;
 }
 
 /** Candidat de entitate extras de AI dintr-un semnal. */
@@ -68,6 +86,10 @@ export interface ExtractedEntity {
 const MAX_RELATED = 200;
 const MAX_ALIASES = 20;
 const TREND_WINDOW_DAYS = 14;
+const MAX_MONTHS = 24;
+const MAX_RELATIONS = 40;
+/** Timp de înjumătățire al forței unei relații fără dovezi noi (zile) */
+const RELATION_HALF_LIFE_DAYS = 45;
 
 /** Normalizează un nume pentru potrivire: minuscule, fără diacritice/punctuație. */
 export function normalizeAlias(name: string): string {
@@ -234,12 +256,49 @@ export function applyMention(entity: Entity, ctx: MentionContext): Entity {
     if (id !== entity.id) relatedEntityIds = union(relatedEntityIds, id);
   }
 
+  // Memorie lunară (ultimele 24 de luni)
+  const month = now.slice(0, 7);
+  const monthly: Record<string, number> = { ...(entity.monthlyMentions ?? {}) };
+  monthly[month] = (monthly[month] ?? 0) + 1;
+  const monthKeys = Object.keys(monthly).sort();
+  for (const k of monthKeys.slice(0, Math.max(0, monthKeys.length - MAX_MONTHS)))
+    delete monthly[k];
+
+  // Graful de relații: dovezile întăresc, timpul slăbește
+  const relations: Record<string, EntityRelation> = {
+    ...(entity.relations ?? {}),
+  };
+  for (const id of ctx.coEntityIds) {
+    if (id === entity.id) continue;
+    const prev = relations[id];
+    const decayed = prev ? decayRelationWeight(prev, now) : 0;
+    relations[id] = {
+      count: (prev?.count ?? 0) + 1,
+      // +18 per dovadă nouă peste forța rămasă, plafonat la 100
+      weight: Math.min(100, Math.round(decayed + 18)),
+      firstSeen: prev?.firstSeen ?? now,
+      lastSeen: now,
+    };
+  }
+  // Păstrăm doar cele mai puternice MAX_RELATIONS legături
+  const ids = Object.keys(relations);
+  if (ids.length > MAX_RELATIONS) {
+    const keep = new Set(
+      ids
+        .sort((a, b) => relations[b].weight - relations[a].weight)
+        .slice(0, MAX_RELATIONS)
+    );
+    for (const id of ids) if (!keep.has(id)) delete relations[id];
+  }
+
   return {
     ...entity,
     aliases,
     lastSeen: now,
     mentionCount: entity.mentionCount + 1,
     dailyMentions: daily,
+    monthlyMentions: monthly,
+    relations,
     trendScore: computeTrendScore(daily),
     importanceScore: Math.round(
       entity.importanceScore === 0
@@ -267,3 +326,35 @@ export const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
   law: "Lege",
   event: "Eveniment",
 };
+
+/** Forța unei relații după trecerea timpului (înjumătățire la 45 de zile). */
+export function decayRelationWeight(rel: EntityRelation, nowIso: string): number {
+  const days =
+    (new Date(nowIso).getTime() - new Date(rel.lastSeen).getTime()) / 86400_000;
+  if (!isFinite(days) || days <= 0) return rel.weight;
+  return rel.weight * Math.pow(0.5, days / RELATION_HALF_LIFE_DAYS);
+}
+
+/** Eticheta tipată a unei relații, derivată determinist din tipuri. */
+export function relationKindLabel(a: EntityType, b: EntityType): string {
+  const la = ENTITY_TYPE_LABELS[a] ?? a;
+  const lb = ENTITY_TYPE_LABELS[b] ?? b;
+  return `${la} ↔ ${lb}`;
+}
+
+/** Relațiile curente ale unei entități, cu decay aplicat, cele mai puternice primele. */
+export function currentRelations(
+  entity: Entity,
+  nowIso: string
+): { entityId: string; count: number; weight: number; firstSeen: string; lastSeen: string }[] {
+  return Object.entries(entity.relations ?? {})
+    .map(([entityId, rel]) => ({
+      entityId,
+      count: rel.count,
+      weight: Math.round(decayRelationWeight(rel, nowIso)),
+      firstSeen: rel.firstSeen,
+      lastSeen: rel.lastSeen,
+    }))
+    .filter((r) => r.weight > 0)
+    .sort((a, b) => b.weight - a.weight);
+}

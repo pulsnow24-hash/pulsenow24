@@ -853,3 +853,65 @@ Reguli stricte: nu inventa contradicții; o cifră care CREȘTE în timp într-u
 
   return JSON.parse(textOf(response)) as import("@/lib/ai-types").ConsistencyResult;
 }
+
+/* ── Monitor local: sunt două story-uri același eveniment? ──── */
+
+const MERGE_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          index: { type: "integer" },
+          sameEvent: { type: "boolean" },
+          reason: { type: "string" },
+        },
+        required: ["index", "sameEvent", "reason"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+export interface MergePairInput {
+  a: { title: string; summary: string; entities: string[] };
+  b: { title: string; summary: string; entities: string[] };
+}
+
+/**
+ * Verdict semantic: două story-uri descriu ACELAȘI eveniment real sau
+ * evenimente diferite (chiar dacă înrudite)? Doar sugestie — editorul
+ * decide întotdeauna.
+ */
+export async function checkStoryMerge(
+  pairs: MergePairInput[]
+): Promise<import("@/lib/ai-types").MergeVerdictResult> {
+  const client = getClient();
+  const listing = pairs
+    .map(
+      (p, i) =>
+        `${i}. A: ${p.a.title}\n   Rezumat A: ${p.a.summary}\n   Entități A: ${p.a.entities.join(", ") || "—"}\n   B: ${p.b.title}\n   Rezumat B: ${p.b.summary}\n   Entități B: ${p.b.entities.join(", ") || "—"}`
+    )
+    .join("\n\n");
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 3000,
+    system: `Pentru fiecare pereche de subiecte, decizi dacă A și B descriu ACELAȘI eveniment real din lume.
+
+- sameEvent=true DOAR dacă e clar același eveniment (același fapt, loc, moment) relatat separat — nu doar subiecte înrudite. Două evenimente diferite la același festival (ex: programul festivalului vs. o razie la festival) sunt evenimente DIFERITE.
+- reason: o frază care explică decizia, numind faptele comune sau diferența.
+
+Nu forța unirea: la îndoială, sameEvent=false. Fiecare index apare exact o dată.`,
+    output_config: {
+      format: { type: "json_schema", schema: MERGE_SCHEMA },
+    },
+    messages: [{ role: "user", content: `Analizează perechile:\n\n${listing}` }],
+  }, { timeout: 120_000, maxRetries: 1 });
+
+  return JSON.parse(textOf(response)) as import("@/lib/ai-types").MergeVerdictResult;
+}

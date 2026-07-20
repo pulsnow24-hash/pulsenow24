@@ -534,6 +534,16 @@ export interface StoryCoverageDoc extends StoryCoverage {
   /** Scorul Confidence Engine (0-100) + eticheta, la momentul updatedAt */
   confidence?: number;
   confidenceLabel?: "high" | "medium" | "low";
+  /**
+   * Sugestia AI de unire cu alt story (același eveniment). DOAR sugestie —
+   * editorul decide: "open" → în așteptare, "dismissed" → respinsă explicit.
+   */
+  mergeSuggestion?: {
+    storyId: string;
+    storyTitle: string;
+    reason: string;
+    status: "open" | "dismissed";
+  };
   updatedAt: string;
 }
 

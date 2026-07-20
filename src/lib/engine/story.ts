@@ -250,3 +250,50 @@ export function storyStatusMeta(status: StoryStatus): {
       return { label: "În desfășurare", className: "text-amber-400 bg-amber-500/10 border-amber-500/30" };
   }
 }
+
+/**
+ * Unește două story-uri despre ACELAȘI eveniment (pur — fără I/O).
+ * Ținta absoarbe sursele, semnalele, articolele și entitățile celuilalt;
+ * scorurile agregate iau maximul (dovezile se adună, nu se pierd).
+ * Folosit DOAR la decizia explicită a editorului.
+ */
+export function mergeStories(target: Story, other: Story): Story {
+  const timeline: StoryTimelineEvent[] = [
+    ...target.timeline,
+    ...other.timeline.filter(
+      (e) =>
+        e.type === "signal" &&
+        !target.timeline.some(
+          (t) => t.type === "signal" && t.title === e.title && t.at === e.at
+        )
+    ),
+    {
+      at: new Date().toISOString(),
+      type: "status" as const,
+      title: `Story unit cu „${other.title}"`,
+    },
+  ]
+    .sort((a, b) => a.at.localeCompare(b.at))
+    .slice(-MAX_TIMELINE);
+
+  const merged: Story = {
+    ...target,
+    sources: uniq([...target.sources, ...other.sources]),
+    signalCount: target.signalCount + other.signalCount,
+    articleIds: uniq([...target.articleIds, ...other.articleIds]),
+    entities: uniq([...target.entities, ...other.entities]),
+    people: uniq([...target.people, ...other.people]),
+    locations: uniq([...target.locations, ...other.locations]),
+    organizations: uniq([...target.organizations, ...other.organizations]),
+    trustScore: Math.max(target.trustScore, other.trustScore),
+    importanceScore: Math.max(target.importanceScore, other.importanceScore),
+    breakingScore: Math.max(target.breakingScore, other.breakingScore),
+    localityScore: Math.max(target.localityScore, other.localityScore),
+    createdAt:
+      target.createdAt < other.createdAt ? target.createdAt : other.createdAt,
+    timeline,
+    lastUpdated: new Date().toISOString(),
+  };
+  merged.status = deriveStatus(merged);
+  return merged;
+}
