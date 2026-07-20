@@ -177,3 +177,15 @@ export interface LocalAnalysisRaw {
 export interface LocalAnalysisResult {
   items: LocalAnalysisRaw[];
 }
+
+/* ── Monitor local: verificarea contradicțiilor între surse ── */
+
+export interface StoryConflictRaw {
+  index: number;
+  conflicting: boolean;
+  note: string;
+}
+
+export interface StoryConflictResult {
+  items: StoryConflictRaw[];
+}

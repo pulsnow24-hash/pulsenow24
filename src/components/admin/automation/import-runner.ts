@@ -48,6 +48,7 @@ import {
 } from "@/lib/engine/sources";
 import {
   ALERT_TYPES,
+  computeStoryCoverage,
   deriveAlerts,
   itemWorkspaces,
   matchKeywords,
@@ -57,8 +58,12 @@ import {
   type MonitorAlert,
   type Workspace,
 } from "@/lib/engine/workspace";
-import { loadWorkspaceConfig, saveAlert } from "@/lib/monitor-store";
-import type { LocalAnalysisResult } from "@/lib/ai-types";
+import {
+  loadWorkspaceConfig,
+  saveAlert,
+  saveStoryCoverage,
+} from "@/lib/monitor-store";
+import type { LocalAnalysisResult, StoryConflictResult } from "@/lib/ai-types";
 
 export async function loadSources(db: Firestore): Promise<RssSource[]> {
   const snap = await getDocs(collection(db, "sources"));
@@ -468,6 +473,90 @@ export async function runImport(opts: {
       feedErrors.push(
         `Monitor local: alerte — ${err instanceof Error ? err.message : "scriere eșuată"}`
       );
+    }
+  }
+
+  // ── Acoperirea story-urilor locale (source-neutrality, fail-safe) ──
+  // Pentru story-urile locale atinse: numărul de surse independente,
+  // clase (oficial/presă/social), coroborare + verificarea AI a
+  // contradicțiilor pentru cele multi-sursă. Nicio sursă nu e autoritate.
+  {
+    const localStoryIds = new Set(
+      [...localByIndex.keys()]
+        .map((i) => storyIdByIndex.get(i))
+        .filter((id): id is string => !!id)
+    );
+    if (localStoryIds.size > 0) {
+      try {
+        const now = new Date().toISOString();
+        const touched = [...localStoryIds]
+          .map((id) => storiesById.get(id))
+          .filter((s): s is Story => !!s);
+
+        const coverageById = new Map(
+          touched.map((s) => [
+            s.id,
+            computeStoryCoverage(s.sources, allSources),
+          ])
+        );
+
+        // Contradicții: doar story-urile cu ≥2 surse independente
+        const conflictById = new Map<string, { conflicting: boolean; note: string }>();
+        const multi = touched.filter(
+          (s) => (coverageById.get(s.id)?.independentSources ?? 0) >= 2
+        );
+        if (multi.length > 0) {
+          const payload = multi.map((s) => ({
+            title: s.title,
+            signals: s.timeline
+              .filter((e) => e.type === "signal")
+              .slice(-8)
+              .map((e) => ({ sursa: e.source ?? "Sursă", titlu: e.title })),
+          }));
+          const res = await phase("story-conflicts", 130_000, () =>
+            callApi<StoryConflictResult>(
+              auth,
+              "/api/monitor/conflicts",
+              { stories: payload },
+              120_000
+            )
+          );
+          res.items.forEach((r) => {
+            const story = multi[r.index];
+            if (story) {
+              conflictById.set(story.id, {
+                conflicting: r.conflicting,
+                note: r.note?.trim() ?? "",
+              });
+            }
+          });
+        }
+
+        await phase("story-coverage", 30_000, () =>
+          Promise.all(
+            touched.map((s) => {
+              const cov = coverageById.get(s.id)!;
+              const conflict = conflictById.get(s.id);
+              return saveStoryCoverage(db, {
+                storyId: s.id,
+                workspace: "valcea",
+                ...cov,
+                conflict: conflict
+                  ? conflict.conflicting
+                    ? "conflicting"
+                    : "consistent"
+                  : "unchecked",
+                ...(conflict?.note ? { conflictNote: conflict.note } : {}),
+                updatedAt: now,
+              });
+            })
+          )
+        );
+      } catch (err) {
+        feedErrors.push(
+          `Monitor local: acoperire — ${err instanceof Error ? err.message : "scriere eșuată"}`
+        );
+      }
     }
   }
 

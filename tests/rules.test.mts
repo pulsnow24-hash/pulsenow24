@@ -186,6 +186,31 @@ await test("respinge severitate invalidă", () => assertFails(setDoc(doc(editor,
 await test("respinge titlu gol", () => assertFails(setDoc(doc(editor, "alerts", "bad3"), { ...validAlert, title: "" })));
 await test("redacția șterge alertă", () => assertSucceeds(deleteDoc(doc(editor, "alerts", "a2"))));
 
+const validCoverage = {
+  workspace: "valcea",
+  independentSources: 3,
+  officialCount: 1,
+  pressCount: 2,
+  socialCount: 0,
+  corroborated: true,
+  singleSource: false,
+  diversityScore: 80,
+  conflict: "consistent",
+  updatedAt: "2026-07-11T10:00:00Z",
+};
+
+console.log("\nSTORY COVERAGE (source-neutrality — internă):");
+await test("public NU citește story_coverage", async () => {
+  await env.withSecurityRulesDisabled(async (ctx) =>
+    setDoc(doc(ctx.firestore(), "story_coverage", "s1"), validCoverage)
+  );
+  await assertFails(getDocs(collection(anon, "story_coverage")));
+});
+await test("public NU scrie story_coverage", () => assertFails(setDoc(doc(anon, "story_coverage", "hack"), validCoverage)));
+await test("redacția scrie acoperire validă", () => assertSucceeds(setDoc(doc(editor, "story_coverage", "s2"), validCoverage)));
+await test("respinge conflict invalid", () => assertFails(setDoc(doc(editor, "story_coverage", "bad1"), { ...validCoverage, conflict: "maybe" })));
+await test("respinge diversityScore >100", () => assertFails(setDoc(doc(editor, "story_coverage", "bad2"), { ...validCoverage, diversityScore: 150 })));
+
 console.log("\nCONFIG WORKSPACE (monitor-valcea):");
 await test("redacția scrie config/monitor-valcea", () =>
   assertSucceeds(setDoc(doc(editor, "config", "monitor-valcea"), { keywords: ["Vâlcea"], institutions: [] })));

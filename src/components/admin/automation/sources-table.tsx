@@ -24,6 +24,7 @@ import {
   type RssSource,
 } from "@/lib/engine/sources";
 import {
+  SOURCE_CATEGORY_LABELS,
   SOURCE_KIND_LABELS,
   sourceSyncMode,
 } from "@/lib/engine/workspace";
@@ -120,6 +121,10 @@ export default function SourcesTable({
                       </span>
                       <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
                         {countryFlag(s.countryCode)} {s.countryCode} · P{s.priority}
+                        {s.sourceCategory && (
+                          <> · {SOURCE_CATEGORY_LABELS[s.sourceCategory]}</>
+                        )}
+                        {s.locality && <> · {s.locality}</>}
                       </span>
                     </span>
                   </div>

@@ -19,6 +19,14 @@ export interface RssSource {
   kind?: import("./workspace").SourceKind;
   /** Workspace-ul căruia îi e asignată sursa (implicit "national") */
   workspace?: import("./workspace").Workspace;
+  /** Categoria instituțională (presă locală, primării, urgențe…) */
+  sourceCategory?: import("./workspace").SourceCategory;
+  /** Localitatea acoperită de sursă */
+  locality?: string;
+  /** Afiliere politică/instituțională, DOAR dacă e cunoscută public */
+  affiliation?: string;
+  /** Note editoriale despre sursă */
+  notes?: string;
   trusted: boolean;
   blocked: boolean;
   enabled: boolean;
@@ -135,6 +143,10 @@ export function newSource(
   if (partial.language) base.language = partial.language;
   if (partial.kind) base.kind = partial.kind;
   if (partial.workspace) base.workspace = partial.workspace;
+  if (partial.sourceCategory) base.sourceCategory = partial.sourceCategory;
+  if (partial.locality) base.locality = partial.locality;
+  if (partial.affiliation) base.affiliation = partial.affiliation;
+  if (partial.notes) base.notes = partial.notes;
   return base;
 }
 

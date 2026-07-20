@@ -767,3 +767,65 @@ Reguli stricte: evaluezi DOAR pe baza textului primit — nu inventa fapte, nu p
 
   return JSON.parse(textOf(response)) as import("@/lib/ai-types").LocalAnalysisResult;
 }
+
+/* ── Monitor local: contradicții între sursele unui story ───── */
+
+const CONFLICT_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          index: { type: "integer" },
+          conflicting: { type: "boolean" },
+          note: { type: "string" },
+        },
+        required: ["index", "conflicting", "note"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+/**
+ * Verifică dacă relatările surselor unui story se CONTRAZIC factual
+ * (cifre diferite, versiuni opuse, dezmințiri). Nicio sursă nu e tratată
+ * ca autoritate — se compară doar afirmațiile între ele.
+ */
+export async function checkStoryConflicts(
+  stories: { title: string; signals: { sursa: string; titlu: string }[] }[]
+): Promise<import("@/lib/ai-types").StoryConflictResult> {
+  const client = getClient();
+  const listing = stories
+    .map(
+      (s, i) =>
+        `${i}. Subiect: ${s.title}\n${s.signals
+          .map((sig) => `   - [${sig.sursa}] ${sig.titlu}`)
+          .join("\n")}`
+    )
+    .join("\n\n");
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4000,
+    system: `Compari relatările mai multor surse despre același subiect, pentru un centru de monitorizare. Nicio sursă nu e considerată automat corectă.
+
+Pentru fiecare subiect răspunzi:
+- conflicting: true DOAR dacă relatările se contrazic factual (cifre incompatibile, versiuni opuse ale evenimentului, dezmințiri explicite). Unghiuri diferite sau detalii complementare NU sunt contradicții.
+- note: dacă conflicting=true, o frază care numește exact contradicția și sursele implicate; altfel string gol.
+
+Nu inventa contradicții. Evaluezi DOAR titlurile primite. Fiecare index apare exact o dată.`,
+    output_config: {
+      format: { type: "json_schema", schema: CONFLICT_SCHEMA },
+    },
+    messages: [
+      { role: "user", content: `Compară relatările:\n\n${listing}` },
+    ],
+  }, { timeout: 120_000, maxRetries: 1 });
+
+  return JSON.parse(textOf(response)) as import("@/lib/ai-types").StoryConflictResult;
+}

@@ -133,5 +133,22 @@ service cloud.firestore {
       allow create, update: if isNewsroom() && validAlert();
       allow delete: if isNewsroom();
     }
+
+    // ── Acoperirea story-urilor (source-neutrality) — internă ──
+    function validCoverage() {
+      let d = request.resource.data;
+      return d.workspace is string
+        && d.independentSources is number && d.independentSources >= 0
+        && d.officialCount is number && d.pressCount is number && d.socialCount is number
+        && d.corroborated is bool && d.singleSource is bool
+        && scoreOk(d.diversityScore)
+        && d.conflict in ['unchecked','consistent','conflicting']
+        && d.updatedAt is string;
+    }
+    match /story_coverage/{id} {
+      allow read: if isNewsroom();
+      allow create, update: if isNewsroom() && validCoverage();
+      allow delete: if isNewsroom();
+    }
   }
 }

@@ -27,10 +27,15 @@ import { callApi } from "@/app/admin/api";
 import { PUBLICATION } from "@/lib/engine/publication";
 import { newSource, type RssSource } from "@/lib/engine/sources";
 import {
+  SOURCE_CATEGORIES,
+  SOURCE_CATEGORY_LABELS,
+  SOURCE_CLASS_LABELS,
   SOURCE_KINDS,
   SOURCE_KIND_LABELS,
   WORKSPACES,
+  sourceClassOf,
   sourceSyncMode,
+  type SourceCategory,
   type SourceKind,
   type Workspace,
 } from "@/lib/engine/workspace";
@@ -70,6 +75,10 @@ export default function SourceDialog({
   const [blocked, setBlocked] = useState(false);
   const [kind, setKind] = useState<SourceKind>("rss");
   const [workspace, setWorkspace] = useState<Workspace>("national");
+  const [sourceCategory, setSourceCategory] = useState<SourceCategory | "">("");
+  const [locality, setLocality] = useState("");
+  const [affiliation, setAffiliation] = useState("");
+  const [notes, setNotes] = useState("");
   const [validating, setValidating] = useState(false);
   const [result, setResult] = useState<ValidationResult | null>(null);
   const [saving, setSaving] = useState(false);
@@ -91,6 +100,10 @@ export default function SourceDialog({
       setBlocked(editing.blocked);
       setKind(editing.kind ?? "rss");
       setWorkspace(editing.workspace ?? "national");
+      setSourceCategory(editing.sourceCategory ?? "");
+      setLocality(editing.locality ?? "");
+      setAffiliation(editing.affiliation ?? "");
+      setNotes(editing.notes ?? "");
     } else {
       setName("");
       setUrl("");
@@ -102,6 +115,10 @@ export default function SourceDialog({
       setBlocked(false);
       setKind("rss");
       setWorkspace("national");
+      setSourceCategory("");
+      setLocality("");
+      setAffiliation("");
+      setNotes("");
     }
   }, [open, editing]);
 
@@ -158,6 +175,14 @@ export default function SourceDialog({
         kind,
         workspace,
       };
+      if (sourceCategory) data.sourceCategory = sourceCategory;
+      else delete (data as Partial<RssSource>).sourceCategory;
+      if (locality.trim()) data.locality = locality.trim();
+      else delete (data as Partial<RssSource>).locality;
+      if (affiliation.trim()) data.affiliation = affiliation.trim();
+      else delete (data as Partial<RssSource>).affiliation;
+      if (notes.trim()) data.notes = notes.trim();
+      else delete (data as Partial<RssSource>).notes;
       // Nu trimitem language=undefined către Firestore
       const lang = result?.language ?? base.language;
       if (lang) data.language = lang;
@@ -281,6 +306,68 @@ export default function SourceDialog({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">
+                Categorie instituțională
+                {sourceCategory && (
+                  <span className="ml-1 text-primary">
+                    · {SOURCE_CLASS_LABELS[sourceClassOf(sourceCategory)]}
+                  </span>
+                )}
+              </Label>
+              <Select
+                value={sourceCategory || "none"}
+                onValueChange={(v) =>
+                  setSourceCategory(v === "none" ? "" : (v as SourceCategory))
+                }
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue placeholder="—" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— fără categorie —</SelectItem>
+                  {SOURCE_CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {SOURCE_CATEGORY_LABELS[c]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Localitate</Label>
+              <Input
+                value={locality}
+                onChange={(e) => setLocality(e.target.value)}
+                placeholder="ex: Râmnicu Vâlcea"
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">
+              Afiliere politică/instituțională (doar dacă e publică)
+            </Label>
+            <Input
+              value={affiliation}
+              onChange={(e) => setAffiliation(e.target.value)}
+              placeholder="ex: instituție publică; lasă gol dacă nu e cunoscută"
+              className="h-8 text-xs"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Note</Label>
+            <Input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="observații despre sursă"
+              className="h-8 text-xs"
+            />
           </div>
 
           {sourceSyncMode(kind) === "connector" && (

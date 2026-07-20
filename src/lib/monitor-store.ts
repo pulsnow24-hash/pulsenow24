@@ -17,6 +17,7 @@ import {
   DEFAULT_VALCEA_CONFIG,
   type MonitorAlert,
   type MonitoredInstitution,
+  type StoryCoverageDoc,
   type Workspace,
   type WorkspaceConfig,
 } from "@/lib/engine/workspace";
@@ -84,4 +85,30 @@ export async function setAlertStatus(
 
 export async function deleteAlert(db: Firestore, id: string): Promise<void> {
   await deleteDoc(doc(db, ALERTS, id));
+}
+
+/* ── Acoperirea story-urilor (source-neutrality) ───────────── */
+
+const STORY_COVERAGE = "story_coverage";
+
+/** Acoperirea salvată a story-urilor unui workspace, indexată după storyId. */
+export async function loadStoryCoverage(
+  db: Firestore,
+  workspace: Workspace
+): Promise<Map<string, StoryCoverageDoc>> {
+  const snap = await getDocs(collection(db, STORY_COVERAGE));
+  const map = new Map<string, StoryCoverageDoc>();
+  for (const d of snap.docs) {
+    const doc = { storyId: d.id, ...d.data() } as StoryCoverageDoc;
+    if (doc.workspace === workspace) map.set(d.id, doc);
+  }
+  return map;
+}
+
+export async function saveStoryCoverage(
+  db: Firestore,
+  coverage: StoryCoverageDoc
+): Promise<void> {
+  const { storyId, ...data } = coverage;
+  await setDoc(doc(db, STORY_COVERAGE, storyId), data);
 }

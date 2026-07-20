@@ -8,7 +8,7 @@
  * Toate cifrele sunt reale; unde nu există date, o spunem explicit.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore/lite";
+import { collection, doc, getDocs, setDoc } from "firebase/firestore/lite";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -34,24 +34,33 @@ import { useNewsroom } from "../newsroom-provider";
 import { loadEntities } from "@/lib/entity-store";
 import { getActiveStories } from "@/lib/story-store";
 import { loadSources } from "@/components/admin/automation/import-runner";
+import { callApi } from "@/app/admin/api";
 import {
   loadAlerts,
+  loadStoryCoverage,
   loadWorkspaceConfig,
   saveWorkspaceConfig,
   setAlertStatus,
 } from "@/lib/monitor-store";
-import type { Entity } from "@/lib/engine/entity";
-import type { RssSource } from "@/lib/engine/sources";
+import { normalizeAlias, type Entity } from "@/lib/engine/entity";
+import { newSource, type RssSource } from "@/lib/engine/sources";
 import type { Story } from "@/lib/engine/story";
 import {
   ALERT_TYPE_LABELS,
+  SINGLE_SOURCE_LABEL,
+  SOURCE_CATEGORIES,
+  SOURCE_CATEGORY_LABELS,
   SOURCE_KIND_LABELS,
+  VALCEA_STARTER_SOURCES,
+  computeCoverageGaps,
+  computeStoryCoverage,
   coreValceaEntityIds,
   isLocalEntity,
   makeInstitution,
   matchKeywords,
   sourceSyncMode,
   type MonitorAlert,
+  type StoryCoverageDoc,
   type WorkspaceConfig,
 } from "@/lib/engine/workspace";
 import {
@@ -118,17 +127,19 @@ interface MonitorData {
   stories: Story[];
   sources: RssSource[];
   items: InboxDoc[];
+  /** null = necititbil (regulile story_coverage încă neinstalate) */
+  coverage: Map<string, StoryCoverageDoc> | null;
 }
 
 export default function MonitorDashboard() {
-  const { db } = useNewsroom();
+  const { db, auth } = useNewsroom();
   const [data, setData] = useState<MonitorData | null>(null);
   const [cfg, setCfg] = useState<WorkspaceConfig | null>(null);
   const [newKeyword, setNewKeyword] = useState("");
   const [newInstitution, setNewInstitution] = useState("");
 
   const reload = useCallback(async () => {
-    const [cfgRes, alertsRes, entitiesRes, storiesRes, sourcesRes, inboxRes] =
+    const [cfgRes, alertsRes, entitiesRes, storiesRes, sourcesRes, inboxRes, covRes] =
       await Promise.allSettled([
         loadWorkspaceConfig(db),
         loadAlerts(db, "valcea"),
@@ -136,6 +147,7 @@ export default function MonitorDashboard() {
         getActiveStories(db),
         loadSources(db),
         getDocs(collection(db, "inbox")),
+        loadStoryCoverage(db, "valcea"),
       ]);
     const config =
       cfgRes.status === "fulfilled" ? cfgRes.value : { keywords: [], institutions: [] };
@@ -150,6 +162,7 @@ export default function MonitorDashboard() {
         inboxRes.status === "fulfilled"
           ? inboxRes.value.docs.map((d) => normalizeInboxDoc(d.id, d.data()))
           : [],
+      coverage: covRes.status === "fulfilled" ? covRes.value : null,
     });
   }, [db]);
 
@@ -214,8 +227,22 @@ export default function MonitorDashboard() {
       .filter((i) => i.local && i.local.commScore >= 60 && i.local.suggestion)
       .sort((a, b) => (b.local?.commScore ?? 0) - (a.local?.commScore ?? 0));
 
+    const gaps = computeCoverageGaps(valceaSources, cfg);
+    const categoryStats = SOURCE_CATEGORIES.map((c) => {
+      const inCat = valceaSources.filter((s) => s.sourceCategory === c);
+      return {
+        category: c,
+        total: inCat.length,
+        active: inCat.filter((s) => s.enabled).length,
+        feed: inCat.filter((s) => sourceSyncMode(s.kind ?? "rss") === "feed" && s.url).length,
+        connector: inCat.filter((s) => sourceSyncMode(s.kind ?? "rss") === "connector" || !s.url).length,
+      };
+    }).filter((c) => c.total > 0);
+
     const today = new Date().toISOString().slice(0, 10);
     return {
+      gaps,
+      categoryStats,
       localEntities,
       institutions,
       localities,
@@ -242,6 +269,80 @@ export default function MonitorDashboard() {
     },
     [db]
   );
+
+  const [seeding, setSeeding] = useState(false);
+
+  /** Adaugă lista de start Vâlcea: fiecare feed e VALIDAT înainte de activare. */
+  const seedStarter = useCallback(async () => {
+    if (!data || seeding) return;
+    setSeeding(true);
+    try {
+      const existing = new Set(data.sources.map((s) => normalizeAlias(s.name)));
+      let added = 0;
+      let validated = 0;
+      let connector = 0;
+      let skipped = 0;
+      for (const starter of VALCEA_STARTER_SOURCES) {
+        if (existing.has(normalizeAlias(starter.name))) {
+          skipped++;
+          continue;
+        }
+        let kind = starter.kind;
+        let enabled = false;
+        let notes = starter.notes;
+        const isFeed = sourceSyncMode(starter.kind) === "feed" && starter.url;
+        if (isFeed) {
+          try {
+            const r = await callApi<{ valid: boolean; error?: string }>(
+              auth,
+              "/api/sources/validate",
+              { url: starter.url },
+              30_000
+            );
+            if (r.valid) {
+              enabled = true;
+              validated++;
+            } else {
+              kind = "website";
+              notes = `${starter.notes} Feed indisponibil la validare — trecut pe conector.`;
+            }
+          } catch {
+            kind = "website";
+            notes = `${starter.notes} Validarea feed-ului a eșuat — trecut pe conector.`;
+          }
+        }
+        if (!enabled && sourceSyncMode(kind) === "connector") connector++;
+        const id =
+          normalizeAlias(starter.name).replace(/ /g, "-").slice(0, 40) ||
+          `sursa-${Date.now()}`;
+        await setDoc(
+          doc(db, "sources", id),
+          newSource({
+            name: starter.name,
+            url: starter.url,
+            category: "Actualitate",
+            countryCode: "RO",
+            kind,
+            workspace: "valcea",
+            sourceCategory: starter.sourceCategory,
+            ...(starter.locality ? { locality: starter.locality } : {}),
+            notes,
+            enabled,
+            trusted: false,
+          })
+        );
+        added++;
+      }
+      toast.success(
+        `Listă de start: ${added} surse adăugate (${validated} feed-uri validate, ${connector} cu conector necesar${skipped ? `, ${skipped} existente sărite` : ""}).`
+      );
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSeeding(false);
+    }
+  }, [data, seeding, auth, db, reload]);
 
   const dismissAlert = useCallback(
     async (id: string) => {
@@ -367,25 +468,62 @@ export default function MonitorDashboard() {
           {view.localStories.length === 0 ? (
             <Empty>Niciun story local activ. Se creează automat la import.</Empty>
           ) : (
-            <div className="space-y-2">
-              {view.localStories.slice(0, 6).map((s) => (
-                <div key={s.id} className="flex items-center gap-2 text-[12.5px]">
-                  <span className="min-w-0 flex-1 truncate">{s.title}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                    {s.signalCount} semnale
-                  </span>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded px-1 font-mono text-[9px] uppercase",
-                      s.breakingScore >= 70
-                        ? "bg-red-500/10 text-red-400"
-                        : "bg-secondary text-muted-foreground"
-                    )}
-                  >
-                    {s.status}
-                  </span>
-                </div>
-              ))}
+            <div className="space-y-2.5">
+              {view.localStories.slice(0, 6).map((s) => {
+                const cov = computeStoryCoverage(s.sources, data.sources);
+                const conflict = data.coverage?.get(s.id);
+                return (
+                  <div key={s.id} className="text-[12.5px]">
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded px-1 font-mono text-[9px] uppercase",
+                          s.breakingScore >= 70
+                            ? "bg-red-500/10 text-red-400"
+                            : "bg-secondary text-muted-foreground"
+                        )}
+                      >
+                        {s.status}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+                      <span className="text-muted-foreground">
+                        {cov.independentSources}{" "}
+                        {cov.independentSources === 1 ? "sursă" : "surse"} ·{" "}
+                        {cov.officialCount} oficiale · {cov.pressCount} presă ·{" "}
+                        {cov.socialCount} sociale
+                      </span>
+                      {cov.singleSource ? (
+                        <span className="rounded border border-amber-500/40 px-1 py-px uppercase text-amber-500">
+                          {SINGLE_SOURCE_LABEL}
+                        </span>
+                      ) : (
+                        <span className="rounded border border-emerald-500/40 px-1 py-px uppercase text-emerald-500">
+                          Coroborat · diversitate {cov.diversityScore}
+                        </span>
+                      )}
+                      {cov.corroborated &&
+                        (conflict?.conflict === "conflicting" ? (
+                          <span
+                            className="rounded border border-red-500/40 px-1 py-px uppercase text-red-400"
+                            title={conflict.conflictNote}
+                          >
+                            Surse în contradicție
+                          </span>
+                        ) : conflict?.conflict === "consistent" ? (
+                          <span className="rounded border border-border px-1 py-px uppercase text-muted-foreground">
+                            Fără contradicții
+                          </span>
+                        ) : (
+                          <span className="rounded border border-border px-1 py-px uppercase text-muted-foreground/60">
+                            Contradicții: neverificat
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </Card>
@@ -561,6 +699,96 @@ export default function MonitorDashboard() {
               ))}
             </div>
           )}
+        </Card>
+      </div>
+
+      {/* Acoperire surse: categorii, lacune, listă de start */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card
+          title="Surse pe categorii"
+          icon={Radio}
+          meta={`${view.valceaSources.length} total · ${view.valceaSources.filter((s) => s.enabled).length} active`}
+        >
+          {view.categoryStats.length === 0 ? (
+            <Empty>Nicio sursă categorisită încă — folosește lista de start.</Empty>
+          ) : (
+            <div className="space-y-1">
+              {view.categoryStats.map((c) => (
+                <div key={c.category} className="flex items-center gap-2 text-[12px]">
+                  <span className="min-w-0 flex-1 truncate">
+                    {SOURCE_CATEGORY_LABELS[c.category]}
+                  </span>
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                    {c.active}/{c.total} active
+                  </span>
+                  {c.feed > 0 && (
+                    <span className="shrink-0 rounded bg-emerald-500/10 px-1 font-mono text-[9px] uppercase text-emerald-500">
+                      {c.feed} RSS
+                    </span>
+                  )}
+                  {c.connector > 0 && (
+                    <span className="shrink-0 rounded bg-amber-500/10 px-1 font-mono text-[9px] uppercase text-amber-500">
+                      {c.connector} conector
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title="Lacune de acoperire"
+          icon={AlertTriangle}
+          meta="ce nu monitorizăm încă"
+        >
+          <div className="space-y-2 text-[12px]">
+            <div>
+              <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                Instituții fără sursă ({view.gaps.institutionsWithoutSource.length})
+              </p>
+              <p className="text-muted-foreground">
+                {view.gaps.institutionsWithoutSource.join(" · ") || "— toate au surse"}
+              </p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                Localități fără sursă ({view.gaps.localitiesWithoutSource.length})
+              </p>
+              <p className="text-muted-foreground">
+                {view.gaps.localitiesWithoutSource.join(" · ") || "— toate acoperite"}
+              </p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                Categorii goale ({view.gaps.emptyCategories.length})
+              </p>
+              <p className="text-muted-foreground">
+                {view.gaps.emptyCategories.map((c) => SOURCE_CATEGORY_LABELS[c]).join(" · ") || "—"}
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Lista de start Vâlcea" icon={Plus} meta={`${VALCEA_STARTER_SOURCES.length} surse curate`}>
+          <p className="text-[11.5px] text-muted-foreground">
+            Catalog multi-sursă verificat manual: presă locală, instituții
+            județene, primării, urgențe, sănătate, utilități și pagini sociale.
+            Fiecare feed e <strong>validat înainte de activare</strong>; sursele
+            fără flux sunt marcate „Conector necesar”, iar cele fără URL
+            verificabil rămân de completat. Nicio publicație nu e tratată ca
+            autoritate.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3"
+            onClick={seedStarter}
+            disabled={seeding || !data}
+          >
+            <Plus className="size-3.5" />
+            {seeding ? "Validez și adaug…" : "Adaugă sursele de start"}
+          </Button>
         </Card>
       </div>
 
