@@ -164,28 +164,34 @@ export function EntityContextSheet({
             </Section>
           )}
 
-          <Section title="Relații (întărite de dovezi)" icon={Network}>
+          <Section title="Co-menționate (asocieri observate)" icon={Network}>
             {view.relations.length === 0 ? (
               <p className="text-[11.5px] text-muted-foreground/60">
-                Încă nicio relație acumulată — se construiesc automat la import.
+                Încă nicio co-menționare — se acumulează automat la import.
               </p>
             ) : (
-              <div className="space-y-1">
-                {view.relations.map((r) => (
-                  <div key={r.entityId} className="flex items-center gap-2 text-[12.5px]">
-                    <span className="min-w-0 flex-1 truncate">{r.other!.name}</span>
-                    <span className="shrink-0 font-mono text-[9px] uppercase text-muted-foreground">
-                      {relationKindLabel(entity.type, r.other!.type)}
-                    </span>
-                    <span
-                      className="shrink-0 font-mono text-[11px] tabular-nums text-primary"
-                      title={`${r.count} co-aparitii · prima ${fmtDate(r.firstSeen)} · ultima ${fmtDate(r.lastSeen)}`}
-                    >
-                      {r.weight}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <>
+                <p className="mb-1.5 text-[10.5px] leading-snug text-muted-foreground/70">
+                  Apariții împreună în story-uri stocate — nu relații personale,
+                  politice sau juridice confirmate.
+                </p>
+                <div className="space-y-1">
+                  {view.relations.map((r) => (
+                    <div key={r.entityId} className="flex items-center gap-2 text-[12.5px]">
+                      <span className="min-w-0 flex-1 truncate">{r.other!.name}</span>
+                      <span className="shrink-0 font-mono text-[9px] uppercase text-muted-foreground">
+                        {relationKindLabel(entity.type, r.other!.type)}
+                      </span>
+                      <span
+                        className="shrink-0 font-mono text-[10px] text-muted-foreground"
+                        title={`Forța asocierii (co-ocurență cu decay temporal): ${r.weight}/100 · prima ${fmtDate(r.firstSeen)} · ultima ${fmtDate(r.lastSeen)}`}
+                      >
+                        împreună în {r.count} {r.count === 1 ? "story" : "story-uri"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </Section>
 

@@ -21,6 +21,7 @@ import {
   type Workspace,
   type WorkspaceConfig,
 } from "@/lib/engine/workspace";
+import type { DailyBrief, WorkflowItem } from "@/lib/engine/workflow";
 
 const CONFIG_DOC = "monitor-valcea";
 const ALERTS = "alerts";
@@ -111,4 +112,73 @@ export async function saveStoryCoverage(
 ): Promise<void> {
   const { storyId, ...data } = coverage;
   await setDoc(doc(db, STORY_COVERAGE, storyId), data);
+}
+
+/* ── Starea editorială (workflow) — SEPARATĂ de dovezi ─────── */
+
+const WORKFLOW = "workflow";
+const BRIEFS = "briefs";
+
+/** Toate stările de workflow ale unui workspace, indexate după storyId. */
+export async function loadWorkflow(
+  db: Firestore,
+  workspace: Workspace
+): Promise<Map<string, WorkflowItem>> {
+  const snap = await getDocs(collection(db, WORKFLOW));
+  const map = new Map<string, WorkflowItem>();
+  for (const d of snap.docs) {
+    const w = { storyId: d.id, ...d.data() } as WorkflowItem;
+    if (w.workspace === workspace) map.set(d.id, w);
+  }
+  return map;
+}
+
+export async function saveWorkflow(
+  db: Firestore,
+  item: WorkflowItem
+): Promise<void> {
+  const { storyId, ...data } = item;
+  await setDoc(doc(db, WORKFLOW, storyId), {
+    ...data,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function loadWorkflowItem(
+  db: Firestore,
+  storyId: string
+): Promise<WorkflowItem | null> {
+  const snap = await getDoc(doc(db, WORKFLOW, storyId));
+  if (!snap.exists()) return null;
+  return { storyId, ...snap.data() } as WorkflowItem;
+}
+
+/* ── Istoricul brief-urilor zilnice ────────────────────────── */
+
+export async function saveBrief(db: Firestore, brief: DailyBrief): Promise<void> {
+  await setDoc(doc(db, BRIEFS, `${brief.workspace}-${brief.date}`), brief);
+}
+
+export async function loadBrief(
+  db: Firestore,
+  workspace: Workspace,
+  date: string
+): Promise<DailyBrief | null> {
+  const snap = await getDoc(doc(db, BRIEFS, `${workspace}-${date}`));
+  if (!snap.exists()) return null;
+  return snap.data() as DailyBrief;
+}
+
+/** Ultimele brief-uri ale unui workspace, cel mai recent primul. */
+export async function loadBriefHistory(
+  db: Firestore,
+  workspace: Workspace,
+  limit = 14
+): Promise<DailyBrief[]> {
+  const snap = await getDocs(collection(db, BRIEFS));
+  return snap.docs
+    .map((d) => d.data() as DailyBrief)
+    .filter((b) => b.workspace === workspace)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, limit);
 }

@@ -217,6 +217,26 @@ await test("respinge confidenceLabel invalid", () => assertFails(setDoc(doc(edit
 await test("acceptă mergeSuggestion (opțional)", () => assertSucceeds(setDoc(doc(editor, "story_coverage", "s4"), { ...validCoverage, mergeSuggestion: { storyId: "sX", storyTitle: "T", reason: "r", status: "open" } })));
 await test("respinge mergeSuggestion.status invalid", () => assertFails(setDoc(doc(editor, "story_coverage", "bad6"), { ...validCoverage, mergeSuggestion: { storyId: "sX", storyTitle: "T", reason: "r", status: "maybe" } })));
 
+const validWorkflow = { workspace: "valcea", storyId: "story1", status: "reviewed", followed: true, notes: [], updatedAt: "2026-07-21T10:00:00Z" };
+console.log("\nWORKFLOW (stare editorială — internă, separată de dovezi):");
+await test("public NU citește workflow", async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "workflow", "story1"), validWorkflow));
+  await assertFails(getDocs(collection(anon, "workflow")));
+});
+await test("public NU scrie workflow", () => assertFails(setDoc(doc(anon, "workflow", "hack"), validWorkflow)));
+await test("redacția scrie workflow valid", () => assertSucceeds(setDoc(doc(editor, "workflow", "story2"), validWorkflow)));
+await test("respinge status workflow invalid", () => assertFails(setDoc(doc(editor, "workflow", "bad1"), { ...validWorkflow, status: "urgent" })));
+await test("respinge notes non-listă", () => assertFails(setDoc(doc(editor, "workflow", "bad2"), { ...validWorkflow, notes: "x" })));
+
+const validBrief = { workspace: "valcea", date: "2026-07-21", generatedAt: "2026-07-21T06:00:00Z", counts: { urgent: 1 }, sections: { urgent: [] } };
+console.log("\nBRIEFS (istoric brief zilnic — intern):");
+await test("public NU citește briefs", async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "briefs", "valcea-2026-07-21"), validBrief));
+  await assertFails(getDocs(collection(anon, "briefs")));
+});
+await test("redacția scrie brief valid", () => assertSucceeds(setDoc(doc(editor, "briefs", "valcea-2026-07-22"), validBrief)));
+await test("respinge brief fără sections", () => assertFails(setDoc(doc(editor, "briefs", "bad"), { workspace: "valcea", date: "x", generatedAt: "y", counts: {} })));
+
 console.log("\nCONFIG WORKSPACE (monitor-valcea):");
 await test("redacția scrie config/monitor-valcea", () =>
   assertSucceeds(setDoc(doc(editor, "config", "monitor-valcea"), { keywords: ["Vâlcea"], institutions: [] })));

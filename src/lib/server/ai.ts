@@ -915,3 +915,81 @@ Nu forța unirea: la îndoială, sameEvent=false. Fiecare index apare exact o da
 
   return JSON.parse(textOf(response)) as import("@/lib/ai-types").MergeVerdictResult;
 }
+
+/* ── Monitor local: schiță de comunicare internă (draft) ────── */
+
+const COMM_DRAFT_SCHEMA = {
+  type: "object",
+  properties: {
+    factualSummary: { type: "string" },
+    confirmedFacts: { type: "array", items: { type: "string" } },
+    unconfirmedClaims: { type: "array", items: { type: "string" } },
+    tone: { type: "string" },
+    suggestedMessage: { type: "string" },
+    openQuestions: { type: "array", items: { type: "string" } },
+  },
+  required: [
+    "factualSummary",
+    "confirmedFacts",
+    "unconfirmedClaims",
+    "tone",
+    "suggestedMessage",
+    "openQuestions",
+  ],
+  additionalProperties: false,
+};
+
+export interface CommDraftInput {
+  title: string;
+  summary: string;
+  /** Semnalele story-ului: sursă + titlu (materialul factual disponibil) */
+  signals: { sursa: string; titlu: string }[];
+  /** Context de încredere din motoarele existente */
+  sourceCount: number;
+  officialCount: number;
+  confidence: number;
+  singleSource: boolean;
+  conflict: string;
+}
+
+/**
+ * Schiță INTERNĂ de comunicare pentru un centru de monitorizare. NU se
+ * publică niciodată automat. Separă strict faptele confirmate de afirmațiile
+ * neconfirmate și de recomandări (ton, mesaj sugerat, întrebări deschise).
+ */
+export async function generateCommDraft(
+  input: CommDraftInput
+): Promise<import("@/lib/ai-types").CommDraftResult> {
+  const client = getClient();
+  const signals = input.signals
+    .map((s) => `- [${s.sursa}] ${s.titlu}`)
+    .join("\n");
+  const context = `Surse independente: ${input.sourceCount} (oficiale: ${input.officialCount}). Încredere: ${input.confidence}/100. ${input.singleSource ? "ATENȚIE: sursă unică, neconfirmat independent." : ""} ${input.conflict === "conflicting" ? "ATENȚIE: surse în contradicție." : ""}`;
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 3000,
+    system: `Ești asistentul de comunicare al unui centru de monitorizare local (județul Vâlcea). Pregătești o schiță INTERNĂ de lucru pentru un ofițer de comunicare — NU un text de publicat. Nu publici nimic. Nu inventezi fapte.
+
+Separă STRICT:
+- confirmedFacts: doar ce e susținut de material (cu ≥1 sursă); fără speculații.
+- unconfirmedClaims: afirmații apărute în surse dar necoroborate/neverificate. Dacă e sursă unică sau surse în contradicție, spune explicit ce nu e confirmat.
+- factualSummary: 2-3 fraze strict factuale despre ce se știe.
+- tone (RECOMANDARE): tonul potrivit pentru o eventuală comunicare (ex: „sobru, prudent, fără alarmism"), ținând cont de nivelul de încredere.
+- suggestedMessage (RECOMANDARE): o schiță de mesaj public, marcată clar ca propunere de lucru, prudentă când încrederea e joasă.
+- openQuestions: întrebările la care instituțiile ar trebui să răspundă înainte de o comunicare fermă.
+
+Scrii în română, concis. Recomandările NU sunt fapte. Nu prezenta ca sigur ceva neconfirmat.`,
+    output_config: {
+      format: { type: "json_schema", schema: COMM_DRAFT_SCHEMA },
+    },
+    messages: [
+      {
+        role: "user",
+        content: `Subiect: ${input.title}\nRezumat: ${input.summary}\n${context}\n\nMaterial disponibil (semnale):\n${signals}`,
+      },
+    ],
+  }, { timeout: 120_000, maxRetries: 1 });
+
+  return JSON.parse(textOf(response)) as import("@/lib/ai-types").CommDraftResult;
+}

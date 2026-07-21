@@ -154,5 +154,36 @@ service cloud.firestore {
       allow create, update: if isNewsroom() && validCoverage();
       allow delete: if isNewsroom();
     }
+
+    // ── Stare editorială (workflow) — SEPARATĂ de dovezi, internă ──
+    function validWorkflow() {
+      let d = request.resource.data;
+      return d.workspace is string
+        && d.storyId is string
+        && d.status in ['new','reviewed','in-progress','waiting','done','dismissed']
+        && d.followed is bool
+        && d.notes is list
+        && d.updatedAt is string;
+    }
+    match /workflow/{id} {
+      allow read: if isNewsroom();
+      allow create, update: if isNewsroom() && validWorkflow();
+      allow delete: if isNewsroom();
+    }
+
+    // ── Istoricul brief-urilor zilnice — intern ──
+    function validBrief() {
+      let d = request.resource.data;
+      return d.workspace is string
+        && d.date is string
+        && d.generatedAt is string
+        && d.sections is map
+        && d.counts is map;
+    }
+    match /briefs/{id} {
+      allow read: if isNewsroom();
+      allow create, update: if isNewsroom() && validBrief();
+      allow delete: if isNewsroom();
+    }
   }
 }

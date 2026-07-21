@@ -37,11 +37,14 @@ import { loadSources } from "@/components/admin/automation/import-runner";
 import { callApi } from "@/app/admin/api";
 import {
   loadAlerts,
+  loadBriefHistory,
   loadStoryCoverage,
+  loadWorkflow,
   loadWorkspaceConfig,
   saveWorkspaceConfig,
   setAlertStatus,
 } from "@/lib/monitor-store";
+import type { DailyBrief, WorkflowItem } from "@/lib/engine/workflow";
 import { normalizeAlias, type Entity } from "@/lib/engine/entity";
 import {
   CONFIDENCE_LABELS,
@@ -76,6 +79,7 @@ import {
   EntityContextSheet,
   StoryContextSheet,
 } from "./context-sheets";
+import OperationalPanel from "./operational-panel";
 
 /* ── Card generic (aceleași idiomuri ca dashboard-ul național) ── */
 
@@ -138,6 +142,9 @@ interface MonitorData {
   items: InboxDoc[];
   /** null = necititbil (regulile story_coverage încă neinstalate) */
   coverage: Map<string, StoryCoverageDoc> | null;
+  /** null = necititbil (regulile workflow încă neinstalate) */
+  workflow: Map<string, WorkflowItem> | null;
+  briefHistory: DailyBrief[];
 }
 
 export default function MonitorDashboard() {
@@ -150,16 +157,27 @@ export default function MonitorDashboard() {
   const [contextStory, setContextStory] = useState<Story | null>(null);
 
   const reload = useCallback(async () => {
-    const [cfgRes, alertsRes, entitiesRes, storiesRes, sourcesRes, inboxRes, covRes] =
-      await Promise.allSettled([
-        loadWorkspaceConfig(db),
-        loadAlerts(db, "valcea"),
-        loadEntities(db),
-        getActiveStories(db),
-        loadSources(db),
-        getDocs(collection(db, "inbox")),
-        loadStoryCoverage(db, "valcea"),
-      ]);
+    const [
+      cfgRes,
+      alertsRes,
+      entitiesRes,
+      storiesRes,
+      sourcesRes,
+      inboxRes,
+      covRes,
+      wfRes,
+      briefRes,
+    ] = await Promise.allSettled([
+      loadWorkspaceConfig(db),
+      loadAlerts(db, "valcea"),
+      loadEntities(db),
+      getActiveStories(db),
+      loadSources(db),
+      getDocs(collection(db, "inbox")),
+      loadStoryCoverage(db, "valcea"),
+      loadWorkflow(db, "valcea"),
+      loadBriefHistory(db, "valcea"),
+    ]);
     const config =
       cfgRes.status === "fulfilled" ? cfgRes.value : { keywords: [], institutions: [] };
     setCfg(config);
@@ -174,6 +192,8 @@ export default function MonitorDashboard() {
           ? inboxRes.value.docs.map((d) => normalizeInboxDoc(d.id, d.data()))
           : [],
       coverage: covRes.status === "fulfilled" ? covRes.value : null,
+      workflow: wfRes.status === "fulfilled" ? wfRes.value : null,
+      briefHistory: briefRes.status === "fulfilled" ? briefRes.value : [],
     });
   }, [db]);
 
@@ -408,6 +428,21 @@ export default function MonitorDashboard() {
         <Metric label="Semnale locale total" value={view.localItems.length} />
         <Metric label="Entități locale" value={view.localEntities.length} />
       </div>
+
+      {/* Panou operațional: Brief zilnic + Coadă de prioritate + acțiuni.
+          Scopat pe story-urile LOCALE — Monitor Vâlcea nu atinge naționalul. */}
+      <OperationalPanel
+        db={db}
+        auth={auth}
+        stories={view.localStories}
+        coverage={data.coverage}
+        items={data.items}
+        alerts={data.alerts}
+        workflow={data.workflow}
+        briefHistory={data.briefHistory}
+        onReload={() => reload().catch(() => {})}
+        onOpenStory={(s) => setContextStory(s)}
+      />
 
       {/* Alerte live */}
       <Card

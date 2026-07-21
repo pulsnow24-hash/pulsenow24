@@ -213,3 +213,14 @@ export interface MergeVerdictRaw {
 export interface MergeVerdictResult {
   items: MergeVerdictRaw[];
 }
+
+/* ── Monitor local: schița de comunicare (draft intern) ────── */
+
+export interface CommDraftResult {
+  factualSummary: string;
+  confirmedFacts: string[];
+  unconfirmedClaims: string[];
+  tone: string;
+  suggestedMessage: string;
+  openQuestions: string[];
+}
