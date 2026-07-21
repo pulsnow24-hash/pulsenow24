@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { ArrowRight, Radio } from "lucide-react";
-import { getPreviewData, relatedTo } from "@/lib/preview/data";
+import { ArrowRight } from "lucide-react";
+import { getPreviewData } from "@/lib/preview/data";
 import { ThemeToggle, SearchTrigger, MobileNav } from "@/components/preview/controls";
 import { TintSurface, sourceLabel, confidenceShort } from "@/components/preview/bits";
 
@@ -13,7 +13,7 @@ const today = () =>
 export default async function DirectionA() {
   const data = await getPreviewData();
   if (!data) return <div className="dir-a pv-root"><p style={{ padding: 60 }}>Fără date.</p></div>;
-  const { hero, live, top, explain, timelineStory, trending, valcea, storyPage } = data;
+  const { hero, live, top, explain, timelineStory, trending, valcea } = data;
   const [leadTop, ...restTop] = top;
 
   return (
@@ -57,7 +57,7 @@ export default async function DirectionA() {
           </div>
           <div className="a-hero-side pv-in-2">
             <TintSurface story={hero} className="a-hero-panel">
-              <p className="q">„{hero.summary.slice(0, 130)}{hero.summary.length > 130 ? "…" : ""}"</p>
+              <p className="q">„{hero.summary.slice(0, 130)}{hero.summary.length > 130 ? "…" : ""}”</p>
             </TintSurface>
           </div>
         </section>

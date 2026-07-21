@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowRight, Activity } from "lucide-react";
 import { getPreviewData } from "@/lib/preview/data";
 import { ThemeToggle, SearchTrigger, MobileNav } from "@/components/preview/controls";
-import { TintSurface, ConfidenceMeter, sourceLabel, confidenceShort } from "@/components/preview/bits";
+import { ConfidenceMeter, sourceLabel } from "@/components/preview/bits";
 
 export const dynamic = "force-dynamic";
 const NAV = ["Live", "Actualitate", "Geopolitică", "Business", "Vâlcea"];

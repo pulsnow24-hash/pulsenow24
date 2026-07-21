@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Play } from "lucide-react";
+import { Play } from "lucide-react";
 import { getPreviewData } from "@/lib/preview/data";
 import { ThemeToggle, SearchTrigger, MobileNav } from "@/components/preview/controls";
 import { TintSurface, ConfidenceMeter, sourceLabel, confidenceShort } from "@/components/preview/bits";
