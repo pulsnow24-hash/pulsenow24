@@ -143,62 +143,11 @@ service cloud.firestore {
         && d.corroborated is bool && d.singleSource is bool
         && scoreOk(d.diversityScore)
         && d.conflict in ['unchecked','consistent','conflicting']
-        && (!('consistencyDetail' in d) || d.consistencyDetail in ['consistent','complementary','update','contradiction'])
-        && (!('confidence' in d) || scoreOk(d.confidence))
-        && (!('confidenceLabel' in d) || d.confidenceLabel in ['high','medium','low'])
-        && (!('mergeSuggestion' in d) || (d.mergeSuggestion is map && d.mergeSuggestion.status in ['open','dismissed']))
         && d.updatedAt is string;
     }
     match /story_coverage/{id} {
       allow read: if isNewsroom();
       allow create, update: if isNewsroom() && validCoverage();
-      allow delete: if isNewsroom();
-    }
-
-    // ── Stare editorială (workflow) — SEPARATĂ de dovezi, internă ──
-    // Documentul e legat de un storyId (== id-ul documentului) și un
-    // workspace valid; validăm status, followed, timestamps, notes și
-    // structura opțională snapshot/draft. Fiind colecție separată, o scriere
-    // aici nu poate atinge stories/alerts/story_coverage/entities.
-    function validWorkflow(id) {
-      let d = request.resource.data;
-      return d.storyId is string && d.storyId == id
-        && d.workspace in ['national','valcea']
-        && d.status in ['new','reviewed','in-progress','waiting','done','dismissed']
-        && d.followed is bool
-        && d.notes is list
-        && d.updatedAt is string
-        && (!('reviewedAt' in d) || d.reviewedAt is string)
-        && (!('snapshot' in d) || (d.snapshot is map
-              && d.snapshot.confidence is number
-              && d.snapshot.signalCount is number))
-        && (!('draft' in d) || (d.draft is map
-              && d.draft.factualSummary is string
-              && d.draft.confirmedFacts is list
-              && d.draft.unconfirmedClaims is list));
-    }
-    match /workflow/{id} {
-      allow read: if isNewsroom();
-      allow create, update: if isNewsroom() && validWorkflow(id);
-      allow delete: if isNewsroom();
-    }
-
-    // ── Istoricul brief-urilor zilnice — intern ──
-    // id = `<workspace>-<date>`; validăm workspace, date, generatedAt și
-    // structura counts/sections (map). Per-item storyId e garantat de
-    // asamblarea deterministă (buildBrief); regulile nu pot itera nested.
-    function validBrief(id) {
-      let d = request.resource.data;
-      return d.workspace in ['national','valcea']
-        && d.date is string
-        && d.generatedAt is string
-        && d.sections is map
-        && d.counts is map
-        && id == d.workspace + '-' + d.date;
-    }
-    match /briefs/{id} {
-      allow read: if isNewsroom();
-      allow create, update: if isNewsroom() && validBrief(id);
       allow delete: if isNewsroom();
     }
   }

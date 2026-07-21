@@ -137,9 +137,10 @@ export async function saveWorkflow(
   db: Firestore,
   item: WorkflowItem
 ): Promise<void> {
-  const { storyId, ...data } = item;
-  await setDoc(doc(db, WORKFLOW, storyId), {
-    ...data,
+  // storyId rămâne în document (id-ul documentului = storyId) — self-describing
+  // și verificabil de reguli (d.storyId == id).
+  await setDoc(doc(db, WORKFLOW, item.storyId), {
+    ...item,
     updatedAt: new Date().toISOString(),
   });
 }

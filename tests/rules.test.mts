@@ -217,25 +217,45 @@ await test("respinge confidenceLabel invalid", () => assertFails(setDoc(doc(edit
 await test("acceptă mergeSuggestion (opțional)", () => assertSucceeds(setDoc(doc(editor, "story_coverage", "s4"), { ...validCoverage, mergeSuggestion: { storyId: "sX", storyTitle: "T", reason: "r", status: "open" } })));
 await test("respinge mergeSuggestion.status invalid", () => assertFails(setDoc(doc(editor, "story_coverage", "bad6"), { ...validCoverage, mergeSuggestion: { storyId: "sX", storyTitle: "T", reason: "r", status: "maybe" } })));
 
-const validWorkflow = { workspace: "valcea", storyId: "story1", status: "reviewed", followed: true, notes: [], updatedAt: "2026-07-21T10:00:00Z" };
+// storyId trebuie să == id-ul documentului (self-describing, verificabil de reguli)
+const wf = (id: string, over: Record<string, unknown> = {}) => ({
+  workspace: "valcea", storyId: id, status: "reviewed", followed: true,
+  notes: [], updatedAt: "2026-07-21T10:00:00Z", ...over,
+});
 console.log("\nWORKFLOW (stare editorială — internă, separată de dovezi):");
 await test("public NU citește workflow", async () => {
-  await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "workflow", "story1"), validWorkflow));
+  await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "workflow", "story1"), wf("story1")));
   await assertFails(getDocs(collection(anon, "workflow")));
 });
-await test("public NU scrie workflow", () => assertFails(setDoc(doc(anon, "workflow", "hack"), validWorkflow)));
-await test("redacția scrie workflow valid", () => assertSucceeds(setDoc(doc(editor, "workflow", "story2"), validWorkflow)));
-await test("respinge status workflow invalid", () => assertFails(setDoc(doc(editor, "workflow", "bad1"), { ...validWorkflow, status: "urgent" })));
-await test("respinge notes non-listă", () => assertFails(setDoc(doc(editor, "workflow", "bad2"), { ...validWorkflow, notes: "x" })));
+await test("public NU scrie workflow", () => assertFails(setDoc(doc(anon, "workflow", "hack"), wf("hack"))));
+await test("redacția scrie workflow valid", () => assertSucceeds(setDoc(doc(editor, "workflow", "story2"), wf("story2"))));
+await test("acceptă snapshot + draft valide", () => assertSucceeds(setDoc(doc(editor, "workflow", "story3"), wf("story3", {
+  reviewedAt: "2026-07-21T09:00:00Z",
+  snapshot: { confidence: 70, signalCount: 3, sourceCount: 2, officialCount: 1, conflict: "consistent" },
+  draft: { factualSummary: "x", confirmedFacts: [], unconfirmedClaims: [], tone: "sobru", suggestedMessage: "m", openQuestions: [], createdAt: "2026-07-21T09:00:00Z" },
+}))));
+await test("respinge storyId != id document", () => assertFails(setDoc(doc(editor, "workflow", "story9"), wf("ALT"))));
+await test("respinge workspace necunoscut", () => assertFails(setDoc(doc(editor, "workflow", "bad0"), wf("bad0", { workspace: "berlin" }))));
+await test("respinge status workflow invalid", () => assertFails(setDoc(doc(editor, "workflow", "bad1"), wf("bad1", { status: "urgent" }))));
+await test("respinge notes non-listă", () => assertFails(setDoc(doc(editor, "workflow", "bad2"), wf("bad2", { notes: "x" }))));
+await test("respinge followed non-bool", () => assertFails(setDoc(doc(editor, "workflow", "bad3"), wf("bad3", { followed: "da" }))));
+await test("respinge snapshot malformat", () => assertFails(setDoc(doc(editor, "workflow", "bad4"), wf("bad4", { snapshot: { confidence: "sus" } }))));
+await test("respinge draft malformat", () => assertFails(setDoc(doc(editor, "workflow", "bad5"), wf("bad5", { draft: { factualSummary: 5 } }))));
 
-const validBrief = { workspace: "valcea", date: "2026-07-21", generatedAt: "2026-07-21T06:00:00Z", counts: { urgent: 1 }, sections: { urgent: [] } };
+const brief = (id: string, over: Record<string, unknown> = {}) => {
+  const [workspace, ...rest] = id.split("-");
+  return { workspace, date: rest.join("-"), generatedAt: "2026-07-21T06:00:00Z", counts: { urgent: 1 }, sections: { urgent: [] }, ...over };
+};
 console.log("\nBRIEFS (istoric brief zilnic — intern):");
 await test("public NU citește briefs", async () => {
-  await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "briefs", "valcea-2026-07-21"), validBrief));
+  await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "briefs", "valcea-2026-07-21"), brief("valcea-2026-07-21")));
   await assertFails(getDocs(collection(anon, "briefs")));
 });
-await test("redacția scrie brief valid", () => assertSucceeds(setDoc(doc(editor, "briefs", "valcea-2026-07-22"), validBrief)));
-await test("respinge brief fără sections", () => assertFails(setDoc(doc(editor, "briefs", "bad"), { workspace: "valcea", date: "x", generatedAt: "y", counts: {} })));
+await test("public NU scrie briefs", () => assertFails(setDoc(doc(anon, "briefs", "valcea-2026-07-23"), brief("valcea-2026-07-23"))));
+await test("redacția scrie brief valid", () => assertSucceeds(setDoc(doc(editor, "briefs", "valcea-2026-07-22"), brief("valcea-2026-07-22"))));
+await test("respinge brief fără sections", () => assertFails(setDoc(doc(editor, "briefs", "valcea-2026-07-24"), { workspace: "valcea", date: "2026-07-24", generatedAt: "y", counts: {} })));
+await test("respinge id != workspace-date", () => assertFails(setDoc(doc(editor, "briefs", "valcea-WRONG"), brief("valcea-2026-07-25"))));
+await test("respinge workspace brief necunoscut", () => assertFails(setDoc(doc(editor, "briefs", "berlin-2026-07-22"), brief("berlin-2026-07-22"))));
 
 console.log("\nCONFIG WORKSPACE (monitor-valcea):");
 await test("redacția scrie config/monitor-valcea", () =>
