@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import {
   getAuth,
   onAuthStateChanged,
+  signOut,
   type Auth,
   type User,
 } from "firebase/auth";
@@ -29,11 +30,19 @@ export interface EditRequest {
   social: ArticleSocial | null;
 }
 
+/** Roluri de redacție, din custom claims (nu din email). */
+export type NewsroomRole = "admin" | "editor" | "viewer";
+const APPROVED_ROLES: NewsroomRole[] = ["admin", "editor", "viewer"];
+
 interface NewsroomContextValue {
   app: FirebaseApp;
   auth: Auth;
   db: Firestore;
   user: User;
+  /** Rolul aprobat al utilizatorului curent (din token). */
+  role: NewsroomRole;
+  /** Scriere permisă (editor/admin); viewer e read-only. */
+  canWrite: boolean;
   /** Trimite un articol în editor și navighează acolo. */
   requestEdit: (request: EditRequest) => void;
   /** Editorul consumă articolul primit (o singură dată). */
@@ -58,12 +67,32 @@ export function NewsroomProvider({ children }: { children: React.ReactNode }) {
 
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
+  // Rolul din custom claims: undefined = încă necunoscut; null = niciun rol aprobat.
+  const [role, setRole] = useState<NewsroomRole | null | undefined>(undefined);
   const pendingEdit = useRef<EditRequest | null>(null);
 
   useEffect(() => {
     if (!auth) return;
-    return onAuthStateChanged(auth, (u) => {
+    return onAuthStateChanged(auth, async (u) => {
       setUser(u);
+      if (!u) {
+        setRole(null);
+        setReady(true);
+        return;
+      }
+      // Citim rolul DOAR din tokenul semnat, plus emailul verificat.
+      try {
+        const token = await u.getIdTokenResult();
+        const claimRole = token.claims.role as NewsroomRole | undefined;
+        const emailOk = u.emailVerified || token.claims.email_verified === true;
+        setRole(
+          emailOk && claimRole && APPROVED_ROLES.includes(claimRole)
+            ? claimRole
+            : null
+        );
+      } catch {
+        setRole(null);
+      }
       setReady(true);
     });
   }, [auth]);
@@ -91,11 +120,19 @@ export function NewsroomProvider({ children }: { children: React.ReactNode }) {
     return <LoginScreen auth={auth} />;
   }
 
+  // Autentificat dar fără rol aprobat / email neverificat → acces refuzat.
+  // Nu se randează niciun date intern și nu se dezvăluie ce documente există.
+  if (!role) {
+    return <AccessDenied auth={auth} email={user.email} />;
+  }
+
   const value: NewsroomContextValue = {
     app,
     auth,
     db,
     user,
+    role,
+    canWrite: role === "admin" || role === "editor",
     requestEdit: (request) => {
       pendingEdit.current = request;
       router.push("/admin/editor");
@@ -111,5 +148,32 @@ export function NewsroomProvider({ children }: { children: React.ReactNode }) {
     <NewsroomContext.Provider value={value}>
       {children}
     </NewsroomContext.Provider>
+  );
+}
+
+/**
+ * Stare „Acces refuzat": utilizator autentificat, dar fără rol de redacție
+ * aprobat (sau cu email neverificat). Nu se afișează niciun date intern și
+ * nu se dezvăluie ce documente/colecții există — doar un mesaj clar.
+ */
+function AccessDenied({ auth, email }: { auth: Auth; email: string | null }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-6">
+      <div className="max-w-sm text-center">
+        <h1 className="text-lg font-semibold text-foreground">Acces refuzat</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Contul {email ? <span className="font-mono">{email}</span> : "tău"} nu
+          are un rol de redacție aprobat. Accesul la datele interne necesită un
+          rol (viewer, editor sau admin) și un email verificat, alocate de un
+          administrator.
+        </p>
+        <button
+          onClick={() => signOut(auth)}
+          className="mt-5 rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
+        >
+          Deconectează-te
+        </button>
+      </div>
+    </div>
   );
 }

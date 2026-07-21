@@ -92,7 +92,13 @@ await env.withSecurityRulesDisabled(async (ctx) => {
 });
 
 const anon = env.unauthenticatedContext().firestore();
-const editor = env.authenticatedContext("editor-uid").firestore();
+// Roluri prin custom claims în token; email_verified obligatoriu pentru acces.
+const admin = env.authenticatedContext("admin-uid", { role: "admin", email_verified: true }).firestore();
+const editor = env.authenticatedContext("editor-uid", { role: "editor", email_verified: true }).firestore();
+const viewer = env.authenticatedContext("viewer-uid", { role: "viewer", email_verified: true }).firestore();
+const noRole = env.authenticatedContext("norole-uid", { email_verified: true }).firestore();
+const unverifiedEditor = env.authenticatedContext("unv-uid", { role: "editor", email_verified: false }).firestore();
+const forgedAdmin = env.authenticatedContext("forge-uid", { email_verified: true }).firestore(); // fără rol în token
 
 console.log("\nPUBLIC (site-ul, neautentificat):");
 await test("citește lista de articole", () => assertSucceeds(getDocs(collection(anon, "articles"))));
@@ -261,6 +267,61 @@ console.log("\nCONFIG WORKSPACE (monitor-valcea):");
 await test("redacția scrie config/monitor-valcea", () =>
   assertSucceeds(setDoc(doc(editor, "config", "monitor-valcea"), { keywords: ["Vâlcea"], institutions: [] })));
 await test("public NU citește config/monitor-valcea", () => assertFails(getDoc(doc(anon, "config", "monitor-valcea"))));
+
+// ── MODEL DE ROLURI (custom claims + email verificat) ──
+const internalColls = ["inbox", "sources", "import_logs", "alerts", "story_coverage", "workflow", "briefs"];
+const someWorkflow = { workspace: "valcea", storyId: "story1", status: "new", followed: false, notes: [], updatedAt: "2026-07-21T10:00:00Z" };
+
+console.log("\nROL: ANONIM — fără acces intern:");
+for (const c of internalColls)
+  await test(`anonim NU citește ${c}`, () => assertFails(getDocs(collection(anon, c))));
+await test("anonim citește colecțiile publice (articles/stories/entities/ticker)", async () => {
+  await assertSucceeds(getDocs(collection(anon, "articles")));
+  await assertSucceeds(getDocs(collection(anon, "stories")));
+  await assertSucceeds(getDocs(collection(anon, "entities")));
+  await assertSucceeds(getDoc(doc(anon, "config", "ticker")));
+});
+
+console.log("\nROL: AUTENTIFICAT FĂRĂ ROL — niciun acces intern:");
+for (const c of internalColls)
+  await test(`fără-rol NU citește ${c}`, () => assertFails(getDocs(collection(noRole, c))));
+await test("fără-rol NU scrie inbox", () => assertFails(setDoc(doc(noRole, "inbox", "x"), { titlu: "z", status: "new" })));
+await test("fără-rol NU scrie workflow", () => assertFails(setDoc(doc(noRole, "workflow", "story1"), someWorkflow)));
+await test("fără-rol încă citește colecțiile publice", () => assertSucceeds(getDocs(collection(noRole, "stories"))));
+
+console.log("\nROL: EDITOR NEVERIFICAT (email nevalidat) — respins:");
+for (const c of internalColls)
+  await test(`editor neverificat NU citește ${c}`, () => assertFails(getDocs(collection(unverifiedEditor, c))));
+await test("editor neverificat NU scrie inbox", () => assertFails(setDoc(doc(unverifiedEditor, "inbox", "x"), { titlu: "z", status: "new" })));
+await test("editor neverificat NU scrie workflow", () => assertFails(setDoc(doc(unverifiedEditor, "workflow", "story1"), someWorkflow)));
+
+console.log("\nROL: VIEWER (verificat) — citește, NU scrie:");
+for (const c of internalColls)
+  await test(`viewer citește ${c}`, () => assertSucceeds(getDocs(collection(viewer, c))));
+await test("viewer NU scrie inbox", () => assertFails(setDoc(doc(viewer, "inbox", "vx"), { titlu: "z", status: "new" })));
+await test("viewer NU scrie workflow", () => assertFails(setDoc(doc(viewer, "workflow", "story1"), someWorkflow)));
+await test("viewer NU scrie sources", () => assertFails(setDoc(doc(viewer, "sources", "vs"), { name: "X" })));
+await test("viewer NU șterge stories", () => assertFails(deleteDoc(doc(viewer, "stories", "story1"))));
+await test("viewer NU scrie config/automation", () => assertFails(setDoc(doc(viewer, "config", "automation"), { autoRefresh: true })));
+
+console.log("\nROL: EDITOR (verificat) — citește + scrie editorial:");
+await test("editor scrie inbox", () => assertSucceeds(setDoc(doc(editor, "inbox", "e-item"), { titlu: "y", status: "new" })));
+await test("editor scrie workflow valid", () => assertSucceeds(setDoc(doc(editor, "workflow", "story1"), someWorkflow)));
+await test("editor scrie brief valid", () => assertSucceeds(setDoc(doc(editor, "briefs", "valcea-2026-08-01"), { workspace: "valcea", date: "2026-08-01", generatedAt: "x", counts: {}, sections: {} })));
+await test("editor citește story_coverage", () => assertSucceeds(getDocs(collection(editor, "story_coverage"))));
+
+console.log("\nROL: ADMIN (verificat) — acces complet:");
+await test("admin citește colecțiile interne", async () => {
+  await assertSucceeds(getDocs(collection(admin, "inbox")));
+  await assertSucceeds(getDocs(collection(admin, "workflow")));
+});
+await test("admin scrie inbox", () => assertSucceeds(setDoc(doc(admin, "inbox", "a-item"), { titlu: "y", status: "new" })));
+await test("admin scrie sources", () => assertSucceeds(setDoc(doc(admin, "sources", "a-src"), { name: "X" })));
+await test("admin șterge story", () => assertSucceeds(deleteDoc(doc(admin, "stories", "story2"))));
+
+console.log("\nCÂMPURI FORJATE / FALSIFICATE — rolul vine DOAR din token:");
+await test("rol în DATELE documentului NU acordă acces", () => assertFails(setDoc(doc(forgedAdmin, "inbox", "forge"), { titlu: "z", status: "new", role: "admin" })));
+await test("rol în date NU permite citirea internă", () => assertFails(getDocs(collection(forgedAdmin, "workflow"))));
 
 await env.cleanup();
 console.log(`\nREZULTAT: ${passed} trecute, ${failed} eșuate`);

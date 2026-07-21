@@ -3,79 +3,51 @@ rules_version = '2';
 // ═══════════════════════════════════════════════════════════════════
 // PulsNow24 — reguli Firestore (versionate în repo)
 //
-// MODEL DE AUTORIZARE: roluri explicite prin Firebase custom claims.
-// Rolul e citit DOAR din tokenul semnat de Firebase (request.auth.token.role),
-// niciodată din datele documentului sau din email. Un cont fără rol aprobat
-// nu are acces la nicio colecție internă.
+// Modelul de autorizare actual: un singur nivel — conturile de redacție
+// create manual în Firebase Auth (nu există sign-up public și nu există
+// încă roluri/custom claims). Prin urmare `isNewsroom()` = autentificat.
 //
-//   admin   → citire+scriere completă în redacție (administrarea rolurilor se
-//             face separat, printr-o cale privilegiată server/admin — NU din reguli)
-//   editor  → citește tot ce e intern; creează/actualizează inbox, sources,
-//             stories, entities, alerts, story_coverage, workflow, briefs, config
-//   viewer  → citește colecțiile interne; fără scrieri
-//   fără rol / anonim → niciun acces intern
-//
-// EMAIL VERIFICAT obligatoriu: conturile password neconfirmate NU primesc
-// acces, chiar dacă au un rol. Providerii de încredere (Google) au
-// email_verified=true în token — verificarea funcționează uniform.
-//
-// Colecții PUBLICE (citire pentru site): articles, config/ticker, stories,
-// entities. Scriere pe ele: doar editor+.
-//
-// NOTĂ DE ARHITECTURĂ (câmpuri gestionate de sistem): scorurile/timeline-ul
-// Story-urilor sunt scrise de pipeline-ul care rulează azi în clientul de
-// redacție (editor+). Când va exista un scriitor server-side (Admin SDK
-// ocolește regulile), scrierile pe /stories pot fi restrânse și mai mult.
+// NOTĂ DE ARHITECTURĂ (câmpuri gestionate de sistem):
+// Scorurile, timeline-ul și datele agregate ale Story-urilor sunt scrise
+// de pipeline-ul de import, care azi rulează în clientul autentificat al
+// redacției — acesta ESTE fluxul de încredere curent. Când va exista un
+// scriitor server-side (Admin SDK ocolește oricum regulile), scrierile pe
+// /stories pot fi restrânse la server schimbând o singură funcție aici.
+// Până atunci, regulile validează strict tipurile/intervalele acestor
+// câmpuri, iar publicul nu poate scrie nimic, nicăieri.
 // ═══════════════════════════════════════════════════════════════════
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Model de roluri (custom claims + email verificat) ──
-    function signedIn() { return request.auth != null; }
-    // Email verificat: password neconfirmat → fals; Google → adevărat.
-    function verified() {
-      return signedIn() && request.auth.token.email_verified == true;
+    function isNewsroom() {
+      return request.auth != null;
     }
-    // Rolul vine EXCLUSIV din tokenul semnat (nu din date/email).
-    function hasRole(r) {
-      return verified() && request.auth.token.role == r;
-    }
-    function isAdmin()  { return hasRole('admin'); }
-    function isEditor() { return isAdmin() || hasRole('editor'); }
-    function isViewer() { return isEditor() || hasRole('viewer'); }
-    // Acces intern: citire = orice rol aprobat (viewer+); scriere = editor+.
-    function canRead()  { return isViewer(); }
-    function canWrite() { return isEditor(); }
 
     // ── Articole: citite de site-ul public, scrise de redacție ──
     match /articles/{id} {
-      allow read: if true;                 // public (site)
-      allow write: if canWrite();          // editor+
+      allow read: if true;
+      allow write: if isNewsroom();
     }
 
     // ── Config: doar tickerul e public (site-ul îl afișează) ──
     match /config/ticker {
-      allow read: if true;                 // public (ticker pe site)
-      allow write: if canWrite();          // editor+
+      allow read: if true;
+      allow write: if isNewsroom();
     }
     match /config/{id} {
-      allow read: if canRead();            // viewer+
-      allow write: if canWrite();          // editor+
+      allow read, write: if isNewsroom();
     }
 
     // ── Fluxul intern al redacției: complet privat ──
     match /inbox/{id} {
-      allow read: if canRead();
-      allow write: if canWrite();
+      allow read, write: if isNewsroom();
     }
     match /sources/{id} {
-      allow read: if canRead();
-      allow write: if canWrite();
+      allow read, write: if isNewsroom();
     }
     match /import_logs/{id} {
-      allow read: if canRead();
-      allow write: if canWrite();
+      allow read, write: if isNewsroom();
     }
 
     // ── Stories: activul central ──
@@ -112,9 +84,9 @@ service cloud.firestore {
         && d.createdAt is string && d.lastUpdated is string;
     }
     match /stories/{id} {
-      allow read: if true;                              // public (site)
-      allow create, update: if canWrite() && validStory();
-      allow delete: if canWrite();
+      allow read: if true;
+      allow create, update: if isNewsroom() && validStory();
+      allow delete: if isNewsroom();
     }
 
     // ── Entities: noduri de cunoaștere reutilizabile ──
@@ -137,11 +109,11 @@ service cloud.firestore {
         && d.dailyMentions is map;
     }
     match /entities/{id} {
-      allow read: if true;                              // public (site)
+      allow read: if true;
       // request.resource.data e documentul rezultat (merged), deci validarea
       // acoperă și update-urile parțiale (ex: arrayUnion pe relatedArticleIds)
-      allow create, update: if canWrite() && validEntity();
-      allow delete: if canWrite();
+      allow create, update: if isNewsroom() && validEntity();
+      allow delete: if isNewsroom();
     }
 
     // ── Monitor local: alertele sunt inteligență INTERNĂ — niciodată publice ──
@@ -157,9 +129,9 @@ service cloud.firestore {
         && d.institutions is list;
     }
     match /alerts/{id} {
-      allow read: if canRead();
-      allow create, update: if canWrite() && validAlert();
-      allow delete: if canWrite();
+      allow read: if isNewsroom();
+      allow create, update: if isNewsroom() && validAlert();
+      allow delete: if isNewsroom();
     }
 
     // ── Acoperirea story-urilor (source-neutrality) — internă ──
@@ -178,9 +150,9 @@ service cloud.firestore {
         && d.updatedAt is string;
     }
     match /story_coverage/{id} {
-      allow read: if canRead();
-      allow create, update: if canWrite() && validCoverage();
-      allow delete: if canWrite();
+      allow read: if isNewsroom();
+      allow create, update: if isNewsroom() && validCoverage();
+      allow delete: if isNewsroom();
     }
 
     // ── Stare editorială (workflow) — SEPARATĂ de dovezi, internă ──
@@ -206,9 +178,9 @@ service cloud.firestore {
               && d.draft.unconfirmedClaims is list));
     }
     match /workflow/{id} {
-      allow read: if canRead();
-      allow create, update: if canWrite() && validWorkflow(id);
-      allow delete: if canWrite();
+      allow read: if isNewsroom();
+      allow create, update: if isNewsroom() && validWorkflow(id);
+      allow delete: if isNewsroom();
     }
 
     // ── Istoricul brief-urilor zilnice — intern ──
@@ -225,9 +197,9 @@ service cloud.firestore {
         && id == d.workspace + '-' + d.date;
     }
     match /briefs/{id} {
-      allow read: if canRead();
-      allow create, update: if canWrite() && validBrief(id);
-      allow delete: if canWrite();
+      allow read: if isNewsroom();
+      allow create, update: if isNewsroom() && validBrief(id);
+      allow delete: if isNewsroom();
     }
   }
 }
